@@ -117,8 +117,15 @@ def run_episode(
     player_names: list[str] | None = None,
     connect: bool = True,
     process_start: float | None = None,
+    paused: bool = False,
+    run_timeout: float | None = None,
 ) -> dict[str, Any]:
-    """Run one episode to settlement and write both artifacts into `out_dir`."""
+    """Run one episode to settlement and write both artifacts into `out_dir`.
+
+    `paused` starts the loop in the state a `{"type":"control","command":
+    "pause"}` frame on /global puts it in; `run_timeout` fails the test rather
+    than hanging it if the loop never settles.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     results_path = out_dir / "results.json"
     replay_path = out_dir / "replay.json"
@@ -146,7 +153,11 @@ def run_episode(
                 # `player_config` frame lands; here the connection id only
                 # exists once connect_player returns.
                 await episode.handle_player_message(socket.connection_id, registration)
-        await episode.run()
+        episode.paused = paused
+        if run_timeout is None:
+            await episode.run()
+        else:
+            await asyncio.wait_for(episode.run(), timeout=run_timeout)
         return {
             "episode": episode,
             "sockets": sockets,
