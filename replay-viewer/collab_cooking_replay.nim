@@ -42,7 +42,13 @@ const
   FeedLines = 6
   TickerMax = 40
   BeatsMax = 64
-  ChromeCap = 4000               # the state JSON is <= 4 KB
+  # The hard ceiling on the state JSON, enforced below. The design note calls
+  # the object "<= 4 KB", which is its NOMINAL size: with MaxHeatTiles = 400
+  # the heat array alone approaches 5 KB, so 4 KB is not a limit anything can
+  # be held to. The guard is the number it actually fires at (r2 review
+  # R2-O6); broadcast_core reads the label length as a u16, so 16 KB
+  # transports fine.
+  ChromeCap = 16000
   SayRunes = 120
   AliasRunes = 8                 # ALIAS_CAP in coworld/plans.py
   # A feed line carrying a say is "<alias>: <say>": the cap has to cover the
@@ -929,7 +935,7 @@ proc chromeJson(): string =
   else:
     doc["final"] = newJNull()
   result = $doc
-  if result.len > ChromeCap * 4:
+  if result.len > ChromeCap:
     # A pathological replay cannot be allowed to blow the label: drop the
     # beats (the scrubber degrades, the board does not).
     doc["beats"] = newJArray()
