@@ -281,7 +281,6 @@ class LiveMettaGridEpisode:
         self._obs_parser = ObsParser(policy_env)
         self._pass_counters = pass_counters(config.layout)
         self.heat: dict[tuple[int, int], int] = {}
-        self.ticket_expiries = replay_mod.ticket_expiries(config.max_steps)
         self.feed: list[dict[str, Any]] = []
         self.beats: list[dict[str, Any]] = []
         self.ticker: list[dict[str, Any]] = []
@@ -412,13 +411,6 @@ class LiveMettaGridEpisode:
         await self._send_observations()
         while self.sim.current_step < self.config.max_steps and not self.sim.is_done():
             if self.paused:
-                # The guard is NOT paused. `pause` is a spectator control that
-                # anything reaching WS /global can send, and a paused loop
-                # advances no step, so without this the episode would sit here
-                # until the platform killed it, with no artifacts and no exit.
-                if self._deadline_reached():  # 10
-                    await self._settle("deadline")
-                    return
                 await asyncio.sleep(0.05)
                 continue
             step = int(self.sim.current_step)
@@ -1022,7 +1014,7 @@ class LiveMettaGridEpisode:
             "paused": self.paused,
             "done": self.done,
             "reason": self.reason,
-            "stations": replay_mod.station_summary(self.state, self.ticket_expiries),
+            "stations": replay_mod.station_summary(self.state),
             "cogs": cogs,
             "feed": self.feed[-FEED_LINES:],
         }
