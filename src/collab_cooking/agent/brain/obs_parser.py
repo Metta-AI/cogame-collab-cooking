@@ -37,7 +37,7 @@ class ObsParser:
         obs: AgentObservation,
         *,
         fallback_position: tuple[int, int],
-    ) -> tuple[OvercookedObservationState, dict[tuple[int, int], Entity]]:
+    ) -> tuple[KitchenObservationState, dict[tuple[int, int], Entity]]:
         state = KitchenObservationState(position=fallback_position)
         row_off = col_off = 0
         has_position = False
