@@ -654,6 +654,17 @@ proc resetAccumulators() =
   seatJob = newSeq[string](seats.len)
   seatPending = newSeq[bool](seats.len)
 
+proc truncRunes(text: string, cap: int): string =
+  ## Rune-boundary truncation: a byte cut mid-rune is exactly what makes a
+  # JSON string that renders in a browser fail a strict parser.
+  if text.runeLen <= cap: return text
+  result = ""
+  var taken = 0
+  for r in text.runes:
+    if taken >= cap: break
+    result.add($r)
+    inc taken
+
 proc absorb(tick: Tick) =
   for event in tick.events:
     let name = event{"ev"}.getStr("")
@@ -840,17 +851,6 @@ proc emitFrame() =
 
 # ---------------------------------------------------------------------------
 # Chrome JSON (sprite 4090's label) -- the viewer's whole state contract.
-
-proc truncRunes(text: string, cap: int): string =
-  ## Rune-boundary truncation: a byte cut mid-rune is exactly what makes a
-  # JSON string that renders in a browser fail a strict parser.
-  if text.runeLen <= cap: return text
-  result = ""
-  var taken = 0
-  for r in text.runes:
-    if taken >= cap: break
-    result.add($r)
-    inc taken
 
 proc chromeJson(): string =
   let tick = ticks[clamp(playhead, 0, ticks.len - 1)]
