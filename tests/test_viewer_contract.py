@@ -167,6 +167,25 @@ def test_the_say_band_is_reserved_from_the_rune_cap_the_server_enforces() -> Non
     assert "minHeight" in band and "say-gauge" in band
 
 
+def test_the_feed_rows_wrap_inside_their_column_instead_of_running_off_the_stage() -> None:
+    """r2 review R2-O2: the game block reuses ctf's `.feed-row` class, whose
+    rule is `white-space: nowrap; max-width: none` -- safe for a pre-bounded
+    10-char name in a right-anchored column, and 59.5% off #stage for a
+    120-rune say line in ours."""
+    row = re.sub(r"/\*.*?\*/", "", GAME_CSS.split("#feed .feed-row {", 1)[1].split("}", 1)[0], flags=re.S)
+    assert "white-space: normal" in row
+    assert "overflow-wrap: anywhere" in row
+    assert "max-width: 100%" in row
+    # The starter's own rule stays verbatim above the banner: the override is
+    # an addition in the appended game block, not an edit to inherited chrome.
+    inherited = PAGE.split("===== collab-cooking additions", 1)[0]
+    assert "white-space: nowrap;" in inherited and "max-width: none;" in inherited
+    # And a wrapped feed can outgrow the board it rides over, so the oldest
+    # line goes rather than running off the top into #stage's overflow.
+    feed = GAME_JS.split("function renderFeed(", 1)[1].split("\n  }", 1)[0]
+    assert "canvas.getBoundingClientRect().top" in feed
+
+
 def test_the_wasm_entry_the_link_flags_and_the_js_name_the_same_symbols() -> None:
     """The static check that would have caught cogame-lantern's split
     bootstrap: a shell from one starter and link flags from another."""

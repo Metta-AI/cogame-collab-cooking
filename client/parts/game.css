@@ -142,6 +142,17 @@
   z-index: 6;
 }
 #feed .feed-row {
+  /* The inherited .feed-row (ctf's kill feed) is `white-space: nowrap;
+     max-width: none`, which was safe there: its rows carry a pre-bounded
+     10-char name and grow leftward from a right-anchored column. Ours carry
+     whole sentences -- including "<alias>: <say>", up to the 120-rune cap --
+     in a left-aligned column, so at 1280x800 one say line rendered 626px wide
+     in a 252px column and 59.5% of it sat past the right edge of #stage,
+     which is overflow:hidden. Wrap inside the column instead. */
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
   font-size: calc(9 * var(--u));
   line-height: calc(12 * var(--u));
   color: var(--paper);
