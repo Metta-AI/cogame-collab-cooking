@@ -223,6 +223,19 @@ def test_the_manifest_loader_check_runs_the_version_the_release_pins() -> None:
     )
 
 
+def test_the_release_puts_the_secret_in_the_game_name_namespace() -> None:
+    """The runnable reads `secret://coworld/collab_cooking/...`, so the
+    `secret put` step has to target `game.name` and not the slug -- they differ
+    by a hyphen here, and a secret under the wrong namespace resolves to
+    nothing while every league episode still 'succeeds', scripted."""
+    release = (ROOT / ".github" / "workflows" / "coworld-release.yml").read_text(encoding="utf-8")
+    step = release.split("- name: Put the Coworld secret", 1)[1].split("\n      - name:", 1)[0]
+    assert "coworld secret put" in step
+    assert '"$SLUG"' not in step, "the secret namespace is game.name, not the slug"
+    assert 'manifest["game"]["name"]' in step, "read the namespace out of the manifest"
+    assert 'coworld secret put \\\n            "$game_name"' in step
+
+
 def test_the_hooks_ci_needs_are_executable() -> None:
     for path in ("tools/build_replay_viewer.sh", "tools/ci/docker_smoke.sh"):
         mode = (ROOT / path).stat().st_mode
