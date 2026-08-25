@@ -355,10 +355,30 @@ jobs:
           secret_file="$(mktemp)"
           chmod 600 "$secret_file"
           printf '%s' "${ANTHROPIC_API_KEY}" > "$secret_file"
+          # The namespace is the Coworld's game.name, NOT the repo slug, and
+          # they differ here (collab_cooking vs collab-cooking). The hosted
+          # game container reads
+          # secret://coworld/collab_cooking/anthropic_api_key out of its
+          # runnable env; a secret put under the slug resolves to nothing,
+          # build_transport logs "unreadable", and every league episode plays
+          # scripted with cause "disabled" -- silently, because that is a
+          # designed success path.
+          game_name="$(python3 - <<'PY'
+          import json
+          manifest = json.load(open("coworld_manifest_template.json"))
+          name = manifest["game"]["name"]
+          uri = manifest["game"]["runnable"]["env"]["ANTHROPIC_API_KEY_URI"]
+          expected = f"secret://coworld/{name}/"
+          if not uri.startswith(expected):
+              raise SystemExit(f"::error::{uri} is not in the {name} namespace")
+          print(name)
+          PY
+          )"
+          echo "secret namespace: ${game_name} (slug is ${SLUG})"
           uvx --from "$COWORLD_PKG" coworld secret put \
-            "$SLUG" "${SECRET_KEY_NAME}" "$secret_file"
+            "$game_name" "${SECRET_KEY_NAME}" "$secret_file"
           rm -f "$secret_file"
-          uvx --from "$COWORLD_PKG" coworld secret list "$SLUG"
+          uvx --from "$COWORLD_PKG" coworld secret list "$game_name"
           echo '{"ok": true}' > "$RR/secret.json"
 
       - name: Assemble release-result.json
