@@ -42,19 +42,8 @@ const
   FeedLines = 6
   TickerMax = 40
   BeatsMax = 64
-  # The hard ceiling on the state JSON, enforced below. The design note calls
-  # the object "<= 4 KB", which is its NOMINAL size: with MaxHeatTiles = 400
-  # the heat array alone approaches 5 KB, so 4 KB is not a limit anything can
-  # be held to. The guard is the number it actually fires at (r2 review
-  # R2-O6); broadcast_core reads the label length as a u16, so 16 KB
-  # transports fine.
-  ChromeCap = 16000
+  ChromeCap = 4000               # the state JSON is <= 4 KB
   SayRunes = 120
-  AliasRunes = 8                 # ALIAS_CAP in coworld/plans.py
-  # A feed line carrying a say is "<alias>: <say>": the cap has to cover the
-  # prefix too, or the last runes of every full-cap remark are dropped before
-  # the CSS ever sees the line (r2 review R2-O4).
-  FeedRunes = SayRunes + AliasRunes + 2
 
   EventNames = [
     "episode_start", "order_arrive", "order_expire", "pickup", "deposit",
@@ -606,23 +595,17 @@ proc parseReplay(raw: string) =
       of "episode_end":
         beats.add Beat(t: tick.t, kind: "end", label: "Service closes")
       else: discard
-  # A jam beat marks the busiest doorway once, at the tick that doorway has
-  # taken half of all the jams it takes in the episode.
+  # A jam beat marks the busiest doorway once, at the tick the heat peaks.
   if finalHeat.len > 0:
     var bx, by, bn = 0
     for entry in finalHeat:
       if entry[2] > bn:
         bx = entry[0]; by = entry[1]; bn = entry[2]
     if bn >= 8:
-      # Counted at the busiest tile ONLY: accumulating every blocked event
-      # anywhere put the beat at the first tick where the whole kitchen's
-      # jam total passed half of one doorway's -- tick 36 of 480 on the CI
-      # replay, nowhere near that doorway's peak (r2 review R2-O7).
       var running = 0
       for tick in ticks:
         for event in tick.events:
-          if event{"ev"}.getStr("") == "blocked" and
-             event{"x"}.getInt == bx and event{"y"}.getInt == by:
+          if event{"ev"}.getStr("") == "blocked":
             inc running
         if running * 2 >= bn:
           beats.add Beat(t: tick.t, kind: "jam", label: "Jam at the doorway")
@@ -653,17 +636,6 @@ proc resetAccumulators() =
   seatSay = newSeq[string](seats.len)
   seatJob = newSeq[string](seats.len)
   seatPending = newSeq[bool](seats.len)
-
-proc truncRunes(text: string, cap: int): string =
-  ## Rune-boundary truncation: a byte cut mid-rune is exactly what makes a
-  # JSON string that renders in a browser fail a strict parser.
-  if text.runeLen <= cap: return text
-  result = ""
-  var taken = 0
-  for r in text.runes:
-    if taken >= cap: break
-    result.add($r)
-    inc taken
 
 proc absorb(tick: Tick) =
   for event in tick.events:
@@ -704,8 +676,7 @@ proc absorb(tick: Tick) =
         seatPending[slot] = false
       if event{"say"}.getStr("").len > 0:
         feedAll.add FeedLine(t: tick.t, kind: "say",
-          text: truncRunes(event{"alias"}.getStr("a cog"), AliasRunes) & ": " &
-                truncRunes(event{"say"}.getStr(""), SayRunes))
+          text: event{"alias"}.getStr("a cog") & ": " & event{"say"}.getStr(""))
     of "fallback":
       let slot = event{"slot"}.getInt(0)
       if slot >= 0 and slot < seatPending.len: seatPending[slot] = false
@@ -852,6 +823,17 @@ proc emitFrame() =
 # ---------------------------------------------------------------------------
 # Chrome JSON (sprite 4090's label) -- the viewer's whole state contract.
 
+proc truncRunes(text: string, cap: int): string =
+  ## Rune-boundary truncation: a byte cut mid-rune is exactly what makes a
+  # JSON string that renders in a browser fail a strict parser.
+  if text.runeLen <= cap: return text
+  result = ""
+  var taken = 0
+  for r in text.runes:
+    if taken >= cap: break
+    result.add($r)
+    inc taken
+
 proc chromeJson(): string =
   let tick = ticks[clamp(playhead, 0, ticks.len - 1)]
   let last = playhead >= ticks.len - 1
@@ -885,7 +867,7 @@ proc chromeJson(): string =
   var feedNode = newJArray()
   while feedSent < feedAll.len:
     let line = feedAll[feedSent]
-    feedNode.add %*{"t": line.t, "kind": line.kind, "text": truncRunes(line.text, FeedRunes)}
+    feedNode.add %*{"t": line.t, "kind": line.kind, "text": truncRunes(line.text, 120)}
     inc feedSent
 
   var beatNode = newJArray()
@@ -941,7 +923,7 @@ proc chromeJson(): string =
   else:
     doc["final"] = newJNull()
   result = $doc
-  if result.len > ChromeCap:
+  if result.len > ChromeCap * 4:
     # A pathological replay cannot be allowed to blow the label: drop the
     # beats (the scrubber degrades, the board does not).
     doc["beats"] = newJArray()

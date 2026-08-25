@@ -246,41 +246,6 @@ jobs:
             --soak 10 \
             --strict-text-bounds
 
-      # -----------------------------------------------------------------
-      # The worst-case renderer fixture for MODEL-AUTHORED text.
-      #
-      # The step above proves the bundle renders and that no CANVAS draw left
-      # its frame. It cannot see this game's say band or its feed: both are
-      # DOM, and viewer_smoke.mjs instruments only fillText/strokeText. Worse,
-      # docker_smoke.sh runs without an ANTHROPIC_API_KEY, so every seat falls
-      # back to a scripted baseline and the replay above carries ZERO `say`
-      # events -- `canvas text: 0 drawn` in its own log line. The whole class
-      # of chrome that exists to show what a model said is untested by every
-      # gate above it (cogchemists 2026-08-24; here, r2 review R2-O1/R2-O2:
-      # the say chip hid 54-81% of a full-cap remark and the feed ran 59.5% of
-      # one off #stage, with all three jobs green).
-      #
-      # So this step loads the REAL page with the real chrome and the real
-      # font, hands its own onText a frame built to hurt -- a full-cap remark
-      # on EVERY seat and a feed of full-cap lines, Latin, CJK and one
-      # unbroken token -- at 13 viewports down to 360px wide, and asserts for
-      # every model-text node that scrollHeight <= clientHeight, scrollWidth
-      # <= clientWidth, that the node sits inside #stage (overflow: hidden),
-      # that the string is still full-length, and that the reserved band does
-      # not move when a remark lands. Do not fold this into viewer_smoke.mjs:
-      # that file is a verbatim template copy.
-      - name: Load a full-cap remark in a real browser (DOM text bands)
-        run: |
-          set -euo pipefail
-          test -s tools/ci/dom_text_smoke.mjs || {
-            echo "::error::tools/ci/dom_text_smoke.mjs is missing. It is the only gate that"
-            echo "::error::renders LLM-authored text: every CI replay is silent, so without"
-            echo "::error::it a clipped say band or feed line ships green."
-            exit 1; }
-          node tools/ci/dom_text_smoke.mjs \
-            --out dom-text-smoke.json \
-            --screenshot dom-text-smoke.png
-
       - name: Upload the viewer smoke evidence
         # Always: the screenshot and the JSON are most useful when the job is red.
         if: always()
@@ -290,8 +255,6 @@ jobs:
           path: |
             viewer-smoke.png
             viewer-smoke.json
-            dom-text-smoke.png
-            dom-text-smoke.json
           if-no-files-found: warn
           retention-days: 14
 

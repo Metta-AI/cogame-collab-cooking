@@ -49,7 +49,7 @@ from collab_cooking.coworld.llm import (
     build_system_prompt,
     build_user_message,
 )
-from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, PROMPT_RUNES, POLICY_NAME_RUNES, truncate_runes
+from collab_cooking.coworld.plans import PROMPT_RUNES, POLICY_NAME_RUNES, truncate_runes
 from collab_cooking.game.game import (
     CHOP_MEAT_PROGRESS,
     CHOP_VEG_PROGRESS,
@@ -281,7 +281,6 @@ class LiveMettaGridEpisode:
         self._obs_parser = ObsParser(policy_env)
         self._pass_counters = pass_counters(config.layout)
         self.heat: dict[tuple[int, int], int] = {}
-        self.ticket_expiries = replay_mod.ticket_expiries(config.max_steps)
         self.feed: list[dict[str, Any]] = []
         self.beats: list[dict[str, Any]] = []
         self.ticker: list[dict[str, Any]] = []
@@ -412,13 +411,6 @@ class LiveMettaGridEpisode:
         await self._send_observations()
         while self.sim.current_step < self.config.max_steps and not self.sim.is_done():
             if self.paused:
-                # The guard is NOT paused. `pause` is a spectator control that
-                # anything reaching WS /global can send, and a paused loop
-                # advances no step, so without this the episode would sit here
-                # until the platform killed it, with no artifacts and no exit.
-                if self._deadline_reached():  # 10
-                    await self._settle("deadline")
-                    return
                 await asyncio.sleep(0.05)
                 continue
             step = int(self.sim.current_step)
@@ -568,7 +560,7 @@ class LiveMettaGridEpisode:
         )
 
     def _feed(self, event: dict[str, Any], text: str, kind: str) -> None:
-        self.feed.append({"t": int(self.sim.current_step), "kind": kind, "text": truncate_runes(text, FEED_RUNES)})
+        self.feed.append({"t": int(self.sim.current_step), "kind": kind, "text": truncate_runes(text, 120)})
         if len(self.feed) > 400:
             del self.feed[:-400]
 
@@ -805,9 +797,7 @@ class LiveMettaGridEpisode:
                 event = plan.replay_event(seat.slot, seat.alias, self.batch.turn, outcome.src)
                 self._push_event(event)
                 if plan.say:
-                    # The alias is truncated separately so the remark keeps
-                    # all SAY_RUNES of itself (r2 review R2-O4).
-                    self._feed(event, f"{truncate_runes(seat.alias, ALIAS_CAP)}: {plan.say}", "say")
+                    self._feed(event, f"{seat.alias}: {plan.say}", "say")
                 self._beat({}, "plan", f"{seat.alias} takes {plan.station}")
                 await self._send_to_slot(
                     seat.slot,
@@ -1024,7 +1014,7 @@ class LiveMettaGridEpisode:
             "paused": self.paused,
             "done": self.done,
             "reason": self.reason,
-            "stations": replay_mod.station_summary(self.state, self.ticket_expiries),
+            "stations": replay_mod.station_summary(self.state),
             "cogs": cogs,
             "feed": self.feed[-FEED_LINES:],
         }

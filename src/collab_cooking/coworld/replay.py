@@ -39,7 +39,6 @@ from collab_cooking.game.game import (
     QUEUE_SOUP,
     RECIPE_BY_DISH_RESOURCE,
     WASH_PROGRESS,
-    build_ticket_specs,
 )
 from collab_cooking.kitchens.layouts import dimensions, grid, stations
 
@@ -145,16 +144,6 @@ def fryer_state(inv: dict[str, int]) -> str:
     return "idle"
 
 
-def ticket_expiries(max_steps: int) -> dict[int, int]:
-    """Ticket index -> the tick it expires on.
-
-    Read from the schedule the env itself lays down at config time
-    (`build_ticket_specs`, the same call `make_env` makes), so the tick the
-    viewer counts down to is the tick the engine expires the ticket on.
-    """
-    return {spec.index: spec.expiry for spec in build_ticket_specs(max_steps)}
-
-
 def _live_tickets(board: dict[str, int]) -> list[str]:
     return sorted(name for name, value in board.items() if name.startswith("ticket_") and value > 0)
 
@@ -255,17 +244,14 @@ def derive_events(
     for name in sorted(live - prev_live):
         recipe = name.rsplit("_", 1)[-1]
         events.append({"ev": "order_arrive", "ticket": name, "recipe": recipe, **board_pos()})
-    # The tickets that left the board this tick, split once into the ones a
-    # serve took and the ones that expired. The state diff carries no ticket
-    # identity, so the split is by count -- but it is ONE split, and the serve
-    # events below draw their recipes from the same list in the same order, so
-    # a tick with two serves no longer reports the first departed ticket's
-    # recipe twice (r2 review R2-O8).
-    departed = sorted(prev_live - live)
-    served_now = max(0, sum(current.delivered) - sum(previous.delivered))
-    served_tickets, expired_tickets = departed[:served_now], departed[served_now:]
-    for name in expired_tickets:
+    served_now = sum(current.delivered) - sum(previous.delivered)
+    for name in sorted(prev_live - live):
         recipe = name.rsplit("_", 1)[-1]
+        # A ticket that left the board because it was SERVED is reported as a
+        # serve below, not as an expiry.
+        if served_now > 0:
+            served_now -= 1
+            continue
         events.append({"ev": "order_expire", "ticket": name, "recipe": recipe, **board_pos()})
 
     for slot, (before, after) in enumerate(zip(previous.cogs, current.cogs, strict=False)):
@@ -295,7 +281,6 @@ def derive_events(
     # `serve` is attributed to the seat whose delivered count went up.
     serving = current.station_pos.get("serving_station", (0, 0))
     dish_total = sum(previous.delivered)
-    recipes = [name.rsplit("_", 1)[-1] for name in served_tickets]
     for slot, (was, now) in enumerate(zip(previous.delivered, current.delivered, strict=False)):
         alias = aliases[slot] if slot < len(aliases) else f"Cog-{slot}"
         for extra in range(now - was):
@@ -306,7 +291,7 @@ def derive_events(
                     "ev": "serve",
                     "slot": slot,
                     "alias": alias,
-                    "recipe": recipes.pop(0) if recipes else _queue_recipe(previous, current),
+                    "recipe": _served_recipe(previous, current),
                     "dish": dish_total,
                     "x": serving[1],
                     "y": serving[0],
@@ -320,11 +305,7 @@ def derive_events(
         y, x = cog["pos"]
         target = _move_target(cog["pos"], action)
         occupied = any(other["pos"] == target for i, other in enumerate(current.cogs) if i != slot)
-        # Keyed by the tile the event carries -- the cog's own -- so the
-        # replay's end-of-episode `heat` is exactly what the viewer
-        # accumulates live from the `blocked` events as the playhead moves.
-        # Keying it by the target tile made the two name different tiles.
-        heat[(x, y)] = heat.get((x, y), 0) + 1
+        heat[(target[1], target[0])] = heat.get((target[1], target[0]), 0) + 1
         events.append(
             {
                 "ev": "blocked",
@@ -335,17 +316,14 @@ def derive_events(
                 "by": "cog" if occupied else "wall",
             }
         )
-    # The list a tick carries IS `DIFF_ORDER`. Emission is convenient rather
-    # than ordered -- `plate_up` comes out inside the per-cog loop and the
-    # station events before `serve` -- so put it in the declared order here.
-    # The sort is stable, so ties still resolve by ascending slot.
-    rank = {name: index for index, name in enumerate(DIFF_ORDER)}
-    events.sort(key=lambda event: rank.get(event["ev"], len(DIFF_ORDER)))
     return events
 
 
-def _queue_recipe(previous: TickState, current: TickState) -> str:
-    """The recipe a serve took when no ticket left the board to name it."""
+def _served_recipe(previous: TickState, current: TickState) -> str:
+    """Which recipe left the board this tick."""
+    gone = set(_live_tickets(previous.board)) - set(_live_tickets(current.board))
+    for name in sorted(gone):
+        return name.rsplit("_", 1)[-1]
     for recipe, resource in (("salad", QUEUE_SALAD), ("soup", QUEUE_SOUP), ("fries", QUEUE_FRIES)):
         if current.board.get(resource, 0) < previous.board.get(resource, 0):
             return recipe
@@ -411,7 +389,7 @@ def _station_events(previous: TickState, current: TickState) -> list[dict[str, A
     return events
 
 
-def station_summary(state: TickState, expiries: dict[int, int] | None = None) -> dict[str, Any]:
+def station_summary(state: TickState) -> dict[str, Any]:
     """The compact `st` block the viewer reads."""
     chop = state.stations.get("chopping_station", {})
     pot = state.stations.get("cooking_station", {})
@@ -427,15 +405,8 @@ def station_summary(state: TickState, expiries: dict[int, int] | None = None) ->
             "salad": board.get(QUEUE_SALAD, 0),
             "soup": board.get(QUEUE_SOUP, 0),
             "fries": board.get(QUEUE_FRIES, 0),
-            # `expires` is the absolute tick this ticket dies on: the clock
-            # readout counts an order EXPIRING from it, so a ticket without
-            # one can never make "3 ORDERS LIVE - 1 EXPIRING" fire.
             "tickets": [
-                {
-                    "i": int(name.split("_")[1]),
-                    "recipe": name.rsplit("_", 1)[-1],
-                    "expires": (expiries or {}).get(int(name.split("_")[1]), -1),
-                }
+                {"i": int(name.split("_")[1]), "recipe": name.rsplit("_", 1)[-1]}
                 for name in _live_tickets(board)
             ],
         },
@@ -460,7 +431,6 @@ class ReplayWriter:
         self.config = config
         self.seats = seats
         self.generated_at = generated_at
-        self.ticket_expiries = ticket_expiries(int(config.get("max_steps", 0) or 0))
         self.ticks: list[dict[str, Any]] = []
         self.heat: dict[tuple[int, int], int] = {}
         self._last_stations: dict[str, Any] | None = None
@@ -480,7 +450,7 @@ class ReplayWriter:
             ],
             "sc": list(state.delivered),
         }
-        summary = station_summary(state, self.ticket_expiries)
+        summary = station_summary(state)
         if summary != self._last_stations:
             record["st"] = summary
             self._last_stations = summary

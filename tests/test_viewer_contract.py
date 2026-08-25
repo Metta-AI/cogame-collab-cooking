@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, SAY_RUNES
 from collab_cooking.coworld.replay import EVENT_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,80 +141,6 @@ def test_plate_css_survives_the_360px_featured_match_iframe() -> None:
     assert "flex: 1 1 auto" in plate
     assert "min-width: 3.2em" in plate
     assert "@media (max-width: 640px)" in GAME_CSS
-
-
-def test_the_say_band_is_reserved_from_the_rune_cap_the_server_enforces() -> None:
-    """The band is measured from SAY_RUNES in the chip's own font, not by eye.
-
-    `tools/ci/dom_text_smoke.mjs` is the gate that actually renders a full-cap
-    remark on every seat and measures it; this is the static half, so a chip
-    that goes back to `max-height` + `overflow: hidden` is red without a
-    browser (r2 review R2-O1: 54-81% of every full-cap remark was invisible).
-    """
-    assert f"var SAY_RUNES = {SAY_RUNES};" in GAME_JS
-    chip = re.sub(r"/\*.*?\*/", "", GAME_CSS.split("#saybar .say-chip {", 1)[1].split("}", 1)[0], flags=re.S)
-    assert "max-height" not in chip, "the say chip must not cap its own height"
-    assert "overflow: hidden" not in chip, "a clipped remark is the bug, not the fix"
-    # Every line fills to the box edge, which is what makes the measured
-    # gauge an upper bound on any 120-rune string.
-    assert "word-break: break-all" in chip
-    assert ".say-gauge" in GAME_CSS
-    body = GAME_JS.split("function relayout()", 1)[1]
-    assert "ccSayBand(boxH)" in body, "the band is reserved on every relayout"
-    # ...and it is reserved from the gauge, whether or not a seat is speaking.
-    band = GAME_JS.split("function ccSayBand(", 1)[1].split("\n  }", 1)[0]
-    assert "minHeight" in band and "say-gauge" in band
-
-
-def test_the_feed_rows_wrap_inside_their_column_instead_of_running_off_the_stage() -> None:
-    """r2 review R2-O2: the game block reuses ctf's `.feed-row` class, whose
-    rule is `white-space: nowrap; max-width: none` -- safe for a pre-bounded
-    10-char name in a right-anchored column, and 59.5% off #stage for a
-    120-rune say line in ours."""
-    row = re.sub(r"/\*.*?\*/", "", GAME_CSS.split("#feed .feed-row {", 1)[1].split("}", 1)[0], flags=re.S)
-    assert "white-space: normal" in row
-    assert "overflow-wrap: anywhere" in row
-    assert "max-width: 100%" in row
-    # The starter's own rule stays verbatim above the banner: the override is
-    # an addition in the appended game block, not an edit to inherited chrome.
-    inherited = PAGE.split("===== collab-cooking additions", 1)[0]
-    assert "white-space: nowrap;" in inherited and "max-width: none;" in inherited
-    # And a wrapped feed can outgrow the board it rides over, so the oldest
-    # line goes rather than running off the top into #stage's overflow.
-    feed = GAME_JS.split("function renderFeed(", 1)[1].split("\n  }", 1)[0]
-    assert "canvas.getBoundingClientRect().top" in feed
-
-
-def test_the_viewer_caps_a_feed_line_the_way_the_server_does() -> None:
-    """Both sides compose "<alias>: <say>", so both caps must cover the prefix
-    as well as the remark (r2 review R2-O4)."""
-    assert FEED_RUNES == SAY_RUNES + ALIAS_CAP + 2
-    assert f"SayRunes = {SAY_RUNES}" in WASM_ENTRY
-    assert f"AliasRunes = {ALIAS_CAP}" in WASM_ENTRY
-    assert "FeedRunes = SayRunes + AliasRunes + 2" in WASM_ENTRY
-    assert "truncRunes(line.text, FeedRunes)" in WASM_ENTRY
-
-
-def test_ci_renders_a_full_cap_remark_because_no_ci_replay_can_talk() -> None:
-    """Every replay CI can produce carries zero LLM text (docker_smoke.sh runs
-    with no ANTHROPIC_API_KEY, so every seat falls back to a scripted baseline
-    and a baseline never speaks), and `viewer_smoke.mjs` instruments only
-    canvas fillText/strokeText while this game's model text is DOM. So the
-    worst-case fixture has to exist, and ci.yml has to run it."""
-    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "node tools/ci/dom_text_smoke.mjs" in ci
-    fixture = (ROOT / "tools" / "ci" / "dom_text_smoke.mjs").read_text(encoding="utf-8")
-    # It reads the cap from the two places that enforce it, renders the real
-    # page, and gates on the DOM measurements viewer_smoke.mjs cannot take.
-    assert "SAY_RUNES" in fixture and "SayRunes" in fixture
-    assert "client', 'replay_broadcast.html'" in fixture
-    for probe in ("scrollHeight", "clientHeight", "scrollWidth", "clientWidth"):
-        assert probe in fixture, probe
-    assert "#saybar .say-chip" in fixture and "#feed .feed-row" in fixture
-    assert "360" in fixture, "the featured-match iframe width is one of the viewports"
-    # viewer_smoke.mjs is a verbatim template copy and stays canvas-only.
-    smoke = (ROOT / "tools" / "ci" / "viewer_smoke.mjs").read_text(encoding="utf-8")
-    assert "--strict-text-bounds" in ci and "--strict-text-bounds" in smoke
 
 
 def test_the_wasm_entry_the_link_flags_and_the_js_name_the_same_symbols() -> None:

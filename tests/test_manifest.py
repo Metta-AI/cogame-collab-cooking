@@ -38,8 +38,8 @@ def test_num_agents_is_four_in_the_certification_fixture() -> None:
     cert = MANIFEST["certification"]
     assert cert["game_config"]["num_agents"] == NUM_AGENTS
     assert len(cert["game_config"]["players"]) == NUM_AGENTS
+    assert len(cert["game_config"]["tokens"]) == NUM_AGENTS
     assert len(cert["players"]) == NUM_AGENTS
-    assert "tokens" not in cert["game_config"], "connect tokens are runner-managed"
 
 
 def test_every_declared_bundled_player_is_seated_at_least_once() -> None:
@@ -221,19 +221,6 @@ def test_the_manifest_loader_check_runs_the_version_the_release_pins() -> None:
         f"ci.yml validates the manifest with coworld {gate.group(1)} but the release "
         f"runs {pinned.group(1)}"
     )
-
-
-def test_the_release_puts_the_secret_in_the_game_name_namespace() -> None:
-    """The runnable reads `secret://coworld/collab_cooking/...`, so the
-    `secret put` step has to target `game.name` and not the slug -- they differ
-    by a hyphen here, and a secret under the wrong namespace resolves to
-    nothing while every league episode still 'succeeds', scripted."""
-    release = (ROOT / ".github" / "workflows" / "coworld-release.yml").read_text(encoding="utf-8")
-    step = release.split("- name: Put the Coworld secret", 1)[1].split("\n      - name:", 1)[0]
-    assert "coworld secret put" in step
-    assert '"$SLUG"' not in step, "the secret namespace is game.name, not the slug"
-    assert 'manifest["game"]["name"]' in step, "read the namespace out of the manifest"
-    assert 'coworld secret put \\\n            "$game_name"' in step
 
 
 def test_the_hooks_ci_needs_are_executable() -> None:

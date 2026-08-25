@@ -26,10 +26,6 @@ RECIPE_CAP = 6
 ZONE_CAP = 6
 ALIAS_CAP = 8
 SAY_RUNES = 120
-# A feed line that carries a `say` is "<alias>: <say>", so its cap has to be
-# the say cap PLUS the prefix -- capping the whole line at SAY_RUNES silently
-# dropped the last runes of every full-cap remark (r2 review R2-O4).
-FEED_RUNES = SAY_RUNES + ALIAS_CAP + 2
 NOTE_RUNES = 200
 PROMPT_RUNES = 1200
 POLICY_NAME_RUNES = 48

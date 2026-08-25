@@ -21,8 +21,6 @@ import asyncio
 import json
 import os
 import sys
-import time
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 import websockets
@@ -38,14 +36,6 @@ from collab_cooking.agent.brain.policy import (
 from collab_cooking.coworld.plans import PROMPT_RUNES, TALK_RUNES, truncate_runes
 
 EMPTY_LOCATION = 255
-# The game container's uvicorn may not be listening yet when this process
-# dials: the platform starts the pods together and raw docker starts them back
-# to back. A refused connection used to be a silent success (the process caught
-# it and exited 0), leaving that seat noop-ing all episode. Bounded: the game's
-# own roster wait is `player_connect_timeout_seconds` (90 s in the cert
-# fixture, 120 s in the variants), and this stays inside it.
-CONNECT_RETRY_SECONDS = 60.0
-CONNECT_RETRY_MAX_DELAY = 2.0
 
 
 def _log(message: str) -> None:
@@ -133,34 +123,11 @@ class Seat:
         )
 
 
-async def connect_with_retry(
-    url: str,
-    *,
-    deadline_seconds: float = CONNECT_RETRY_SECONDS,
-    connect: Callable[[], Awaitable[Any]] | None = None,
-    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-    now: Callable[[], float] = time.monotonic,
-) -> Any:
-    """Dial the game until it answers, or until the bound runs out."""
-    dial = connect or (lambda: websockets.connect(url, max_size=None))
-    deadline = now() + deadline_seconds
-    delay = 0.25
-    while True:
-        try:
-            return await dial()
-        except (OSError, websockets.WebSocketException) as exc:
-            if now() >= deadline:
-                raise
-            _log(f"game not accepting connections yet ({type(exc).__name__}); retrying in {delay:.2f}s")
-            await sleep(delay)
-            delay = min(CONNECT_RETRY_MAX_DELAY, delay * 2)
-
-
 async def run_player(url: str) -> None:
     seat = Seat()
     register = registration()
     baseline = register.get("baseline", DEFAULT_BASELINE) if register["kind"] == "scripted" else DEFAULT_BASELINE
-    async with await connect_with_retry(url) as websocket:
+    async with websockets.connect(url, max_size=None) as websocket:
         async for raw_message in websocket:
             message: dict[str, Any] = json.loads(raw_message)
             kind = message.get("type")
