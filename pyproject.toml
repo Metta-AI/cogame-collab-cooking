@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "collab-cooking"
+version = "0.1.0"
+description = "Collaborative Cooking: four cogs, one kitchen, one score -- dishes served"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Metta AI", email = "info@metta.ai" }]
+requires-python = ">=3.11,<3.14"
+keywords = ["mettagrid", "multi-agent", "cooperation", "melting-pot", "coworld"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "websockets>=15.0.0",
+  "uvicorn[standard]>=0.34.0",
+  "fastapi>=0.115.0",
+  "mettagrid>=0.26.15",
+  "pydantic>=2.11.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.4"]
+standalone = []
+test = ["pytest>=8.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/Metta-AI/cogame-collab-cooking"
+Repository = "https://github.com/Metta-AI/cogame-collab-cooking.git"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/collab_cooking"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

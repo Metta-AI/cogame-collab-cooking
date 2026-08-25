@@ -1,0 +1,10 @@
+.git
+.github
+dist
+docs
+scripts
+tests
+tools
+**/__pycache__
+*.pyc
+nim.cfg
