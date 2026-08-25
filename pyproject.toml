@@ -42,7 +42,11 @@ packages = ["src/collab_cooking"]
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
-addopts = "-ra"
+# `importnb` ships a pytest11 entry point whose pytest_collect_file hook still
+# takes the `path` argument pytest 8 removed, so merely being installed (it
+# arrives in mettagrid's dependency tree) aborts collection before any test
+# runs. Disable the third-party plugin; nothing here uses notebooks.
+addopts = "-ra -p no:importnb"
 
 [tool.ruff]
 line-length = 120
