@@ -606,17 +606,23 @@ proc parseReplay(raw: string) =
       of "episode_end":
         beats.add Beat(t: tick.t, kind: "end", label: "Service closes")
       else: discard
-  # A jam beat marks the busiest doorway once, at the tick the heat peaks.
+  # A jam beat marks the busiest doorway once, at the tick that doorway has
+  # taken half of all the jams it takes in the episode.
   if finalHeat.len > 0:
     var bx, by, bn = 0
     for entry in finalHeat:
       if entry[2] > bn:
         bx = entry[0]; by = entry[1]; bn = entry[2]
     if bn >= 8:
+      # Counted at the busiest tile ONLY: accumulating every blocked event
+      # anywhere put the beat at the first tick where the whole kitchen's
+      # jam total passed half of one doorway's -- tick 36 of 480 on the CI
+      # replay, nowhere near that doorway's peak (r2 review R2-O7).
       var running = 0
       for tick in ticks:
         for event in tick.events:
-          if event{"ev"}.getStr("") == "blocked":
+          if event{"ev"}.getStr("") == "blocked" and
+             event{"x"}.getInt == bx and event{"y"}.getInt == by:
             inc running
         if running * 2 >= bn:
           beats.add Beat(t: tick.t, kind: "jam", label: "Jam at the doorway")
