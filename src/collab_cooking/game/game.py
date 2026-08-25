@@ -1,7 +1,7 @@
 """Game configuration for the Collaborative Cooking kitchen.
 
-Ported from `coworld-overcogged`'s `src/overcogged/game/game.py`. Three
-changes, and only three:
+Ported from `coworld-overcogged`'s `src/overcogged/game/game.py`. Four
+changes, and only four:
 
 * the map builder is swapped from the procedural `MapGenConfig` /
   `CompoundConfig` hub to the eight hand-authored ASCII kitchens
@@ -12,7 +12,12 @@ changes, and only three:
   proxy of dishes, so `sim.episode_rewards[i]` is exactly the integer count of
   dishes seat i carried to the pass;
 * the `full` mechanics set is forced on (the starter turned the recipes on
-  through a CoGame variant graph that the pinned `mettagrid` no longer ships).
+  through a CoGame variant graph that the pinned `mettagrid` no longer ships);
+* tickets are encoded as a **bounded pool of recycled slot resources**
+  (`ticket_slot_count`) instead of one resource per prospective ticket. The
+  schedule is untouched -- 50 tickets in a 900-tick episode, 18 ticks apart,
+  alive for 50 -- but the resource list, and therefore mettagrid's one-byte
+  feature-id space, no longer grows with `max_steps`.
 
 Everything else -- station handlers, ticket specs, events, render config -- is
 the starter's, unchanged.
@@ -124,6 +129,13 @@ TICKET_FIRST_ARRIVAL = 0
 TICKET_INTERARRIVAL = 18
 TICKET_DEADLINE = 50
 
+# The ticket-slot pool is what keeps the resource list -- and therefore the
+# feature-id space -- independent of `max_steps`. mettagrid packs a feature id
+# into one byte (`token_value_base = 256`) and every resource costs four ids
+# (`inv:`, `inv::p1`, `protocol_input:`, `protocol_output:`), so a pool this
+# small leaves the whole board well under 200 ids at any episode length.
+TICKET_SLOT_CAP = 20
+
 ORDER_BOARD_QUERY: Query = query(typeTag("order_board"))
 COOKING_STATION_QUERY: Query = query(typeTag("cooking_station"))
 FRYER_STATION_QUERY: Query = query(typeTag("fryer_station"))
@@ -183,6 +195,7 @@ CARRIED_ITEM_PRIORITY: tuple[str, ...] = (
 @dataclass(frozen=True, slots=True)
 class TicketSpec:
     index: int
+    slot: int
     recipe: RecipeName
     arrival: int
     expiry: int
@@ -220,8 +233,49 @@ def dish_resource_for_recipe(recipe: RecipeName) -> str:
     return DISH_RESOURCE_BY_RECIPE[recipe]
 
 
-def _ticket_resource_name(index: int, recipe: RecipeName) -> str:
-    return f"ticket_{index:03d}_{recipe}"
+def _ticket_resource_name(slot: int, recipe: RecipeName) -> str:
+    return f"ticket_{slot:03d}_{recipe}"
+
+
+def ticket_slot_count(
+    *,
+    interarrival: int = TICKET_INTERARRIVAL,
+    deadline: int = TICKET_DEADLINE,
+    order_queue_max: int = ORDER_QUEUE_MAX,
+) -> int:
+    """How many ticket-slot resources the order board needs.
+
+    A slot is the identity of ONE live ticket and is reused by the next ticket
+    scheduled into it once that one has been served or has expired, so the
+    resource count is bounded by the board rather than by `max_steps`. Three
+    constraints fix the size:
+
+    * a multiple of `len(RECIPE_CYCLE)`, so slot `s` always carries recipe
+      `RECIPE_CYCLE[s % len(RECIPE_CYCLE)]` and the resource name still names
+      the recipe it is a ticket for;
+    * strictly more than the number of tickets whose lifetimes can overlap
+      (`deadline // interarrival + 1`), so the slot a ticket is scheduled into
+      is always free when it arrives;
+    * more than `order_queue_max`, the most tickets that can be live at once.
+
+    Capped at `TICKET_SLOT_CAP` (a multiple of the recipe cycle) because the
+    feature-id space is one byte wide. A capped pool cannot corrupt the board:
+    an arrival whose slot is still occupied is skipped exactly like an arrival
+    into a full queue. It would only tighten the queue for schedules far denser
+    than any shipped variant's (18 ticks apart, 50 ticks alive).
+    """
+    if interarrival <= 0:
+        raise ValueError("interarrival must be positive")
+    cycle = len(RECIPE_CYCLE)
+    overlapping = deadline // interarrival + 1
+    needed = max(order_queue_max, overlapping) + 1
+    slots = -(-needed // cycle) * cycle
+    return min(slots, TICKET_SLOT_CAP)
+
+
+def ticket_slot_resources(slots: int) -> list[str]:
+    """The whole pool, in slot order. Slot `s` is always the same recipe."""
+    return [_ticket_resource_name(slot, RECIPE_CYCLE[slot % len(RECIPE_CYCLE)]) for slot in range(slots)]
 
 
 def build_ticket_specs(
@@ -230,24 +284,30 @@ def build_ticket_specs(
     first_arrival: int = TICKET_FIRST_ARRIVAL,
     interarrival: int = TICKET_INTERARRIVAL,
     deadline: int = TICKET_DEADLINE,
+    order_queue_max: int = ORDER_QUEUE_MAX,
 ) -> list[TicketSpec]:
     if interarrival <= 0:
         raise ValueError("interarrival must be positive")
     if deadline <= 0:
         raise ValueError("deadline must be positive")
 
+    slots = ticket_slot_count(
+        interarrival=interarrival, deadline=deadline, order_queue_max=order_queue_max
+    )
     specs: list[TicketSpec] = []
     arrival = first_arrival
     idx = 0
     while arrival < max_steps:
         recipe = RECIPE_CYCLE[idx % len(RECIPE_CYCLE)]
+        slot = idx % slots
         specs.append(
             TicketSpec(
                 index=idx,
+                slot=slot,
                 recipe=recipe,
                 arrival=arrival,
                 expiry=min(max_steps, arrival + deadline),
-                resource=_ticket_resource_name(idx, recipe),
+                resource=_ticket_resource_name(slot, recipe),
             )
         )
         idx += 1
@@ -255,14 +315,39 @@ def build_ticket_specs(
     return specs
 
 
-def resource_names_for_tickets(ticket_specs: list[TicketSpec]) -> list[str]:
+class TicketSchedule:
+    """The episode's whole ticket schedule, indexed by slot.
+
+    The slot resources are recycled, so a live `ticket_<slot>_<recipe>` on the
+    board names a slot and not a ticket. This maps it back to the ticket that
+    owns it at a given tick -- the last one scheduled into that slot whose
+    arrival has already happened -- which is how the replay keeps reporting a
+    ticket's global index and the absolute tick it expires on.
+    """
+
+    def __init__(self, specs: list[TicketSpec]) -> None:
+        self.specs = list(specs)
+        self._by_slot: dict[int, list[TicketSpec]] = {}
+        for spec in self.specs:
+            self._by_slot.setdefault(spec.slot, []).append(spec)
+
+    def occupant(self, slot: int, step: int) -> TicketSpec | None:
+        latest: TicketSpec | None = None
+        for spec in self._by_slot.get(slot, ()):  # ascending arrival
+            if spec.arrival > step:
+                break
+            latest = spec
+        return latest
+
+
+def resource_names_for_tickets(ticket_slots: list[str]) -> list[str]:
     return [
         *BASE_AGENT_RESOURCES,
         *PREP_PROGRESS_RESOURCES,
         *QUEUE_COUNTER_RESOURCES,
         *POT_RESOURCES,
         *FRYER_RESOURCES,
-        *[ticket.resource for ticket in ticket_specs],
+        *ticket_slots,
     ]
 
 
@@ -659,25 +744,32 @@ def _ticket_is_active(resource_name: str) -> GameValueFilter:
     )
 
 
-def serving_station_config(ticket_specs: list[TicketSpec]) -> GridObjectConfig:
+def serving_station_config(ticket_slots: list[str]) -> GridObjectConfig:
+    """One handler per ticket SLOT, not per prospective ticket.
+
+    A slot's recipe is fixed by its position in the pool, so the gate is still
+    "hold `dish_<recipe>` with a live ticket for that recipe on the board", and
+    the serve still clears one specific ticket rather than a bare count.
+    """
     handlers: list[Handler] = []
-    for ticket in ticket_specs:
-        dish_resource = dish_resource_for_recipe(ticket.recipe)
+    for slot, resource in enumerate(ticket_slots):
+        recipe = RECIPE_CYCLE[slot % len(RECIPE_CYCLE)]
+        dish_resource = dish_resource_for_recipe(recipe)
         handlers.append(
             Handler(
-                name=f"serve_ticket_{ticket.index:03d}_{ticket.recipe}",
-                filters=[actorHas({dish_resource: 1}), _ticket_is_active(ticket.resource)],
+                name=f"serve_ticket_{slot:03d}_{recipe}",
+                filters=[actorHas({dish_resource: 1}), _ticket_is_active(resource)],
                 mutations=[
                     updateActor({dish_resource: -1, DIRTY_PLATE: 1}),
                     queryDelta(
                         ORDER_BOARD_QUERY,
-                        {ticket.resource: -1, ticket.queue_resource: -1},
+                        {resource: -1, queue_resource_for_recipe(recipe): -1},
                     ),
                     logActorAgentStat("orders_served"),
-                    logActorAgentStat(f"orders_served_{ticket.recipe}"),
+                    logActorAgentStat(f"orders_served_{recipe}"),
                     logStatToGame("orders_served"),
                     logStatToGame("orders_served_total"),
-                    logStatToGame(f"orders_served_{ticket.recipe}"),
+                    logStatToGame(f"orders_served_{recipe}"),
                 ],
             )
         )
@@ -714,40 +806,50 @@ def wash_station_config(wash_ticks: int) -> GridObjectConfig:
     )
 
 
-def order_board_config(ticket_specs: list[TicketSpec], order_queue_max: int) -> GridObjectConfig:
+def order_board_config(ticket_slots: list[str], order_queue_max: int) -> GridObjectConfig:
     initial = {
         QUEUE_SALAD: 0,
         QUEUE_SOUP: 0,
         QUEUE_FRIES: 0,
-        **{ticket.resource: 0 for ticket in ticket_specs},
+        **{resource: 0 for resource in ticket_slots},
     }
     limits: dict[str, ResourceLimitsConfig] = {
         "queue_counts": ResourceLimitsConfig(
             base=order_queue_max, max=order_queue_max, resources=QUEUE_COUNTER_RESOURCES
         ),
     }
-    if ticket_specs:
+    if ticket_slots:
         limits["active_tickets"] = ResourceLimitsConfig(
             base=order_queue_max,
             max=order_queue_max,
-            resources=[ticket.resource for ticket in ticket_specs],
+            resources=list(ticket_slots),
         )
         limits.update(
             {
-                f"ticket_{ticket.index:03d}": ResourceLimitsConfig(base=1, max=1, resources=[ticket.resource])
-                for ticket in ticket_specs
+                f"ticket_{slot:03d}": ResourceLimitsConfig(base=1, max=1, resources=[resource])
+                for slot, resource in enumerate(ticket_slots)
             }
         )
     return GridObjectConfig(name="order_board", inventory=InventoryConfig(initial=initial, limits=limits))
 
 
 def order_events(
-    ticket_specs: list[TicketSpec], *, order_queue_max: int = ORDER_QUEUE_MAX
+    ticket_specs: list[TicketSpec],
+    ticket_slots: list[str],
+    *,
+    order_queue_max: int = ORDER_QUEUE_MAX,
 ) -> dict[str, EventConfig]:
-    if not ticket_specs:
+    """Two events per prospective ticket, both writing its SLOT resource.
+
+    The schedule still lays every ticket of the episode down at config time --
+    the events are cheap, they carry no feature id -- but they all address the
+    bounded pool. An arrival is skipped when the queue is full or when its own
+    slot is still occupied; an expiry only fires while its slot is occupied.
+    """
+    if not ticket_specs or not ticket_slots:
         return {}
     active_tickets = SumGameValue(
-        values=[QueryInventoryValue(query=ORDER_BOARD_QUERY, item=ticket.resource) for ticket in ticket_specs]
+        values=[QueryInventoryValue(query=ORDER_BOARD_QUERY, item=resource) for resource in ticket_slots]
     )
     events: dict[str, EventConfig] = {}
     for ticket in ticket_specs:
@@ -755,7 +857,10 @@ def order_events(
             name=f"ticket_arrival_{ticket.index:03d}_{ticket.recipe}",
             target_query=ORDER_BOARD_QUERY,
             timesteps=[ticket.arrival],
-            filters=[isNot(GameValueFilter(target=HandlerTarget.TARGET, value=active_tickets, min=order_queue_max))],
+            filters=[
+                isNot(GameValueFilter(target=HandlerTarget.TARGET, value=active_tickets, min=order_queue_max)),
+                isNot(targetHas({ticket.resource: 1})),
+            ],
             mutations=[
                 updateTarget({ticket.resource: 1, ticket.queue_resource: 1}),
                 logStatToGame("orders_arrived"),
@@ -937,12 +1042,20 @@ def make_env(settings: KitchenSettings) -> MettaGridConfig:
         first_arrival=settings.ticket_first_arrival,
         interarrival=settings.ticket_interarrival,
         deadline=settings.ticket_deadline,
+        order_queue_max=settings.order_queue_max,
+    )
+    ticket_slots = ticket_slot_resources(
+        ticket_slot_count(
+            interarrival=settings.ticket_interarrival,
+            deadline=settings.ticket_deadline,
+            order_queue_max=settings.order_queue_max,
+        )
     )
     game = GameConfig(
         map_builder=kitchen(settings.layout),
         max_steps=settings.max_steps,
         num_agents=settings.num_agents,
-        resource_names=resource_names_for_tickets(ticket_specs),
+        resource_names=resource_names_for_tickets(ticket_slots),
         obs=ObsConfig(global_obs=GlobalObsConfig(local_position=True, last_action_move=True)),
         actions=ActionsConfig(
             move=MoveActionConfig(),
@@ -959,12 +1072,12 @@ def make_env(settings: KitchenSettings) -> MettaGridConfig:
             "chopping_station": chopping_station_config(settings.chop_ticks),
             "cooking_station": cooking_station_config(settings.soup_cook_ticks),
             "fryer_station": fryer_station_config(settings.fries_cook_ticks),
-            "serving_station": serving_station_config(ticket_specs),
+            "serving_station": serving_station_config(ticket_slots),
             "wash_station": wash_station_config(settings.wash_ticks),
-            "order_board": order_board_config(ticket_specs, settings.order_queue_max),
+            "order_board": order_board_config(ticket_slots, settings.order_queue_max),
         },
         events={
-            **order_events(ticket_specs, order_queue_max=settings.order_queue_max),
+            **order_events(ticket_specs, ticket_slots, order_queue_max=settings.order_queue_max),
             **cooking_events(settings.max_steps, soup_burn_ticks=settings.soup_burn_ticks),
             **fryer_events(settings.max_steps, fries_burn_ticks=settings.fries_burn_ticks),
             **queue_instrumentation_events(settings.max_steps),
