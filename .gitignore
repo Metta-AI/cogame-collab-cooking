@@ -4,3 +4,5 @@ dist/
 replay-viewer/dist/
 nimcache/
 .venv/
+dom-text-smoke.json
+dom-text-smoke.png

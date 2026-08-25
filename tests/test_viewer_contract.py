@@ -186,6 +186,28 @@ def test_the_feed_rows_wrap_inside_their_column_instead_of_running_off_the_stage
     assert "canvas.getBoundingClientRect().top" in feed
 
 
+def test_ci_renders_a_full_cap_remark_because_no_ci_replay_can_talk() -> None:
+    """Every replay CI can produce carries zero LLM text (docker_smoke.sh runs
+    with no ANTHROPIC_API_KEY, so every seat falls back to a scripted baseline
+    and a baseline never speaks), and `viewer_smoke.mjs` instruments only
+    canvas fillText/strokeText while this game's model text is DOM. So the
+    worst-case fixture has to exist, and ci.yml has to run it."""
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "node tools/ci/dom_text_smoke.mjs" in ci
+    fixture = (ROOT / "tools" / "ci" / "dom_text_smoke.mjs").read_text(encoding="utf-8")
+    # It reads the cap from the two places that enforce it, renders the real
+    # page, and gates on the DOM measurements viewer_smoke.mjs cannot take.
+    assert "SAY_RUNES" in fixture and "SayRunes" in fixture
+    assert "client', 'replay_broadcast.html'" in fixture
+    for probe in ("scrollHeight", "clientHeight", "scrollWidth", "clientWidth"):
+        assert probe in fixture, probe
+    assert "#saybar .say-chip" in fixture and "#feed .feed-row" in fixture
+    assert "360" in fixture, "the featured-match iframe width is one of the viewports"
+    # viewer_smoke.mjs is a verbatim template copy and stays canvas-only.
+    smoke = (ROOT / "tools" / "ci" / "viewer_smoke.mjs").read_text(encoding="utf-8")
+    assert "--strict-text-bounds" in ci and "--strict-text-bounds" in smoke
+
+
 def test_the_wasm_entry_the_link_flags_and_the_js_name_the_same_symbols() -> None:
     """The static check that would have caught cogame-lantern's split
     bootstrap: a shell from one starter and link flags from another."""
