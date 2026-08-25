@@ -228,13 +228,23 @@
   function renderFeed(s) {
     var box = $('feed');
     if (!box) return;
-    (s.feed || []).forEach(function (line) {
+    var lines = s.feed || [];
+    if (!lines.length) return;
+    lines.forEach(function (line) {
       var row = document.createElement('div');
       row.className = 'feed-row ' + (line.kind || 'info');
       row.textContent = line.text || '';
       box.appendChild(row);
     });
     while (box.childNodes.length > 6) box.removeChild(box.firstChild);
+    // A feed row wraps now (see #feed .feed-row), so six of them carrying
+    // full-cap say lines can be taller than the board they ride over. Drop
+    // the oldest until the rest fit above the canvas -- a feed shows the last
+    // lines that fit; it never runs off the top into #stage's overflow.
+    var ceiling = canvas ? canvas.getBoundingClientRect().top : 0;
+    while (box.childNodes.length > 1 && box.getBoundingClientRect().top < ceiling) {
+      box.removeChild(box.firstChild);
+    }
   }
 
   function renderBeats(s) {
