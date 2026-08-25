@@ -163,6 +163,9 @@ def test_heat_is_the_cumulative_blocked_move_count(artifacts: dict) -> None:
         for event in tick.get("ev", []):
             if event["ev"] != "blocked":
                 continue
-            # heat is keyed by the TILE the cog tried to enter, not its own.
             blocked[(event["x"], event["y"])] = blocked.get((event["x"], event["y"]), 0) + 1
-    assert sum(count for _x, _y, count in [tuple(e) for e in document["heat"]]) == sum(blocked.values())
+    # Tile for tile, not just in total: the viewer accumulates the overlay live
+    # from these events as the playhead moves, so a `heat` array keyed by any
+    # other tile would tint different tiles from the ones the replay names.
+    assert {(x, y): count for x, y, count in document["heat"]} == blocked
+    assert sum(blocked.values()) > 0, "the fixture must actually block some moves"
