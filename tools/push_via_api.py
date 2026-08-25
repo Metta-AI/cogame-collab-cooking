@@ -15,12 +15,16 @@ from __future__ import annotations
 import base64
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 
 API = "https://api.github.com"
+# local commit sha -> the sha the API minted for it. Without this the whole
+# history is replayed on every run and the branch grows a duplicate of itself.
+STATE = pathlib.Path(".git/api_push_state.json")
 
 
 def run(*args: str) -> str:
@@ -49,8 +53,13 @@ def call(method: str, path: str, body: dict | None = None) -> dict:
 
 def main() -> None:
     repo, branch = sys.argv[1], sys.argv[2]
-    commits = run("git", "rev-list", "--reverse", "HEAD").split()
-    print(f"{len(commits)} commits to replay")
+    pushed: dict[str, str] = json.loads(STATE.read_text()) if STATE.exists() else {}
+    every = run("git", "rev-list", "--reverse", "HEAD").split()
+    commits = [sha for sha in every if sha not in pushed]
+    print(f"{len(commits)} of {len(every)} commits to replay")
+    if not commits:
+        print("nothing to push")
+        return
 
     try:
         head = call("GET", f"/repos/{repo}/git/ref/heads/{branch}")
@@ -99,6 +108,8 @@ def main() -> None:
             {"message": message, "tree": tree["sha"], "parents": [parent]},
         )
         parent = made["sha"]
+        pushed[commit] = parent
+        STATE.write_text(json.dumps(pushed, indent=1))
         headline = message.splitlines()[0]
         print(f"  [{index}/{len(commits)}] {parent[:8]}  {headline}")
 
