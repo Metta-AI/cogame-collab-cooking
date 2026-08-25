@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from collab_cooking.coworld.plans import SAY_RUNES
+from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, SAY_RUNES
 from collab_cooking.coworld.replay import EVENT_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -184,6 +184,16 @@ def test_the_feed_rows_wrap_inside_their_column_instead_of_running_off_the_stage
     # line goes rather than running off the top into #stage's overflow.
     feed = GAME_JS.split("function renderFeed(", 1)[1].split("\n  }", 1)[0]
     assert "canvas.getBoundingClientRect().top" in feed
+
+
+def test_the_viewer_caps_a_feed_line_the_way_the_server_does() -> None:
+    """Both sides compose "<alias>: <say>", so both caps must cover the prefix
+    as well as the remark (r2 review R2-O4)."""
+    assert FEED_RUNES == SAY_RUNES + ALIAS_CAP + 2
+    assert f"SayRunes = {SAY_RUNES}" in WASM_ENTRY
+    assert f"AliasRunes = {ALIAS_CAP}" in WASM_ENTRY
+    assert "FeedRunes = SayRunes + AliasRunes + 2" in WASM_ENTRY
+    assert "truncRunes(line.text, FeedRunes)" in WASM_ENTRY
 
 
 def test_ci_renders_a_full_cap_remark_because_no_ci_replay_can_talk() -> None:

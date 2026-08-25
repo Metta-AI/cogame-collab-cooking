@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from collab_cooking.coworld.llm import LlmPlanner
-from collab_cooking.coworld.plans import SAY_RUNES
+from collab_cooking.coworld.plans import FEED_RUNES, SAY_RUNES
 from collab_cooking.coworld.replay import (
     DIFF_ORDER,
     EVENT_NAMES,
@@ -118,6 +118,19 @@ def test_a_capped_multibyte_say_survives_as_valid_utf8(artifacts: dict) -> None:
         assert say == MULTIBYTE_SAY[:SAY_RUNES]
         assert say.encode("utf-8").decode("utf-8") == say
         assert all(ord(rune) > 127 for rune in say)
+
+
+def test_a_feed_line_carries_the_whole_say_and_the_alias(artifacts: dict) -> None:
+    """r2 review R2-O4: a say line is "<alias>: <say>", so capping the WHOLE
+    line at SAY_RUNES dropped the last runes of every full-cap remark before
+    a reader ever saw it."""
+    lines = [line for line in artifacts["episode"].feed if line["kind"] == "say"]
+    assert lines, "no say reached the feed"
+    for line in lines:
+        alias, separator, say = line["text"].partition(": ")
+        assert separator == ": " and alias.startswith("Cog-")
+        assert say == MULTIBYTE_SAY[:SAY_RUNES], "the remark lost its tail"
+        assert len(line["text"]) <= FEED_RUNES
 
 
 def test_note_is_absent_from_the_replay_entirely(artifacts: dict) -> None:
