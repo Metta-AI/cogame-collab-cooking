@@ -68,7 +68,7 @@ docker cp "${container_id}:/workspace/replay-viewer/dist/." "${output_dir}"
 # not a sample: a missing collab_cooking_replay.wasm renders as a blank board
 # with every other asset 200.
 expected=(index.html chrome_common.js broadcast_core.js static_replay.js
-          static_replay_worker.js collab_cooking_replay.js
+          static_replay_worker.js font.ttf collab_cooking_replay.js
           collab_cooking_replay.wasm collab_cooking_replay.data)
 missing=()
 for f in "${expected[@]}"; do
