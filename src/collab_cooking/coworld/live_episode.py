@@ -49,7 +49,7 @@ from collab_cooking.coworld.llm import (
     build_system_prompt,
     build_user_message,
 )
-from collab_cooking.coworld.plans import PROMPT_RUNES, POLICY_NAME_RUNES, truncate_runes
+from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, PROMPT_RUNES, POLICY_NAME_RUNES, truncate_runes
 from collab_cooking.game.game import (
     CHOP_MEAT_PROGRESS,
     CHOP_VEG_PROGRESS,
@@ -568,7 +568,7 @@ class LiveMettaGridEpisode:
         )
 
     def _feed(self, event: dict[str, Any], text: str, kind: str) -> None:
-        self.feed.append({"t": int(self.sim.current_step), "kind": kind, "text": truncate_runes(text, 120)})
+        self.feed.append({"t": int(self.sim.current_step), "kind": kind, "text": truncate_runes(text, FEED_RUNES)})
         if len(self.feed) > 400:
             del self.feed[:-400]
 
@@ -805,7 +805,9 @@ class LiveMettaGridEpisode:
                 event = plan.replay_event(seat.slot, seat.alias, self.batch.turn, outcome.src)
                 self._push_event(event)
                 if plan.say:
-                    self._feed(event, f"{seat.alias}: {plan.say}", "say")
+                    # The alias is truncated separately so the remark keeps
+                    # all SAY_RUNES of itself (r2 review R2-O4).
+                    self._feed(event, f"{truncate_runes(seat.alias, ALIAS_CAP)}: {plan.say}", "say")
                 self._beat({}, "plan", f"{seat.alias} takes {plan.station}")
                 await self._send_to_slot(
                     seat.slot,

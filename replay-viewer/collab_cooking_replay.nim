@@ -44,6 +44,11 @@ const
   BeatsMax = 64
   ChromeCap = 4000               # the state JSON is <= 4 KB
   SayRunes = 120
+  AliasRunes = 8                 # ALIAS_CAP in coworld/plans.py
+  # A feed line carrying a say is "<alias>: <say>": the cap has to cover the
+  # prefix too, or the last runes of every full-cap remark are dropped before
+  # the CSS ever sees the line (r2 review R2-O4).
+  FeedRunes = SayRunes + AliasRunes + 2
 
   EventNames = [
     "episode_start", "order_arrive", "order_expire", "pickup", "deposit",
@@ -676,7 +681,8 @@ proc absorb(tick: Tick) =
         seatPending[slot] = false
       if event{"say"}.getStr("").len > 0:
         feedAll.add FeedLine(t: tick.t, kind: "say",
-          text: event{"alias"}.getStr("a cog") & ": " & event{"say"}.getStr(""))
+          text: truncRunes(event{"alias"}.getStr("a cog"), AliasRunes) & ": " &
+                truncRunes(event{"say"}.getStr(""), SayRunes))
     of "fallback":
       let slot = event{"slot"}.getInt(0)
       if slot >= 0 and slot < seatPending.len: seatPending[slot] = false
@@ -867,7 +873,7 @@ proc chromeJson(): string =
   var feedNode = newJArray()
   while feedSent < feedAll.len:
     let line = feedAll[feedSent]
-    feedNode.add %*{"t": line.t, "kind": line.kind, "text": truncRunes(line.text, 120)}
+    feedNode.add %*{"t": line.t, "kind": line.kind, "text": truncRunes(line.text, FeedRunes)}
     inc feedSent
 
   var beatNode = newJArray()
