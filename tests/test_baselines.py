@@ -162,7 +162,12 @@ def test_plan_fuzz_keeps_the_executor_emitting_one_legal_action() -> None:
     assert accepted > 0, "the fuzzer must produce at least some usable plans"
 
 
-def test_every_baseline_name_is_selectable_and_distinct_from_the_default() -> None:
+def test_every_baseline_name_is_selectable_and_resolves_a_role() -> None:
+    """Naming note (r2 review R2-O11): three of the four baselines resolve the
+    SAME role at this slot, which is correct -- `runner` and `passer` differ
+    from `brigade` by zone and hand-off, not by role -- so this test is about
+    each name being selectable and resolving, not about roles being
+    distinct."""
     _sim, pei, _seats = wire_seats("cramped", ["brigade"] * 4, 20)
     roles = {
         name: KitchenBrain(pei, 3, layout="cramped", baseline=name)._role
