@@ -79,7 +79,13 @@
 #heatbtn[aria-pressed="true"] { color: #2a1f16; background: var(--red); border-color: var(--red); }
 
 /* The say band is sized from the 120-rune cap so the board never jumps when a
-   line lands. Model-authored text is DOM, never canvas. */
+   line lands. Model-authored text is DOM, never canvas.
+
+   The height is NOT a number chosen here: ccSayBand() in the game block
+   measures one full-cap remark in the chip's own font at the chip's own width
+   and writes the result to #saybar's inline min-height, whether or not anyone
+   is speaking. The calc(24 * var(--u)) below is only the floor that holds the
+   band before the first frame arrives. */
 #saybar {
   position: absolute;
   left: 0; right: 0;
@@ -94,10 +100,16 @@
 #saybar .say-chip {
   flex: 1 1 0;
   min-width: 0;
-  font-size: calc(8.5 * var(--u));
-  line-height: calc(11 * var(--u));
-  max-height: calc(22 * var(--u));
-  overflow: hidden;
+  font-size: calc(8.5 * var(--u) * var(--sayfit, 1));
+  line-height: calc(11 * var(--u) * var(--sayfit, 1));
+  /* No max-height and no overflow:hidden -- the band is reserved from the cap
+     instead, so a full-cap remark is legible rather than half of it. And
+     break-all is what makes that reservation an UPPER bound: every line fills
+     to the box edge, so an unbroken run of the widest rune in the font is the
+     tallest a 120-rune remark can render. Ragged word wrapping would beat a
+     measurement taken from a sentence by ~60% and clip again. */
+  word-break: break-all;
+  overflow-wrap: anywhere;
   color: var(--paper);
   background: rgba(20, 14, 9, 0.72);
   border-left: calc(2 * var(--u)) solid var(--sc, var(--ghost));
@@ -106,6 +118,16 @@
 }
 #saybar .say-chip b { color: var(--sc, var(--paper)); font-weight: 700; }
 #saybar .say-chip.empty { opacity: 0.28; }
+/* The gauge chips: one full-cap remark each, in the chip's own font, out of
+   flow and invisible. ccSayBand() sets their width to a real chip's and reads
+   their height back as the band to reserve. */
+#saybar .say-chip.say-gauge {
+  position: absolute;
+  top: 0; left: 0;
+  visibility: hidden;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
 
 #feed {
   position: absolute;
@@ -182,6 +204,13 @@
   #scorebug .plate .plate-policy,
   #scorebug .plate .plate-job { display: none; }
   #feed { display: none; }
+}
+/* Under ~320px of height the scorebug, the ticker and the transport bar leave
+   no room for both a board and a band that can hold a full-cap remark. The
+   say band goes, exactly as the feed goes under 640px of width: a surface
+   that cannot show a whole remark should not show a fifth of one. */
+@media (max-height: 320px) {
+  #saybar { display: none; }
 }
 
 /* Every beat kind the server can emit has a rule; no other kind is ever put

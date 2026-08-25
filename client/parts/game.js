@@ -92,6 +92,83 @@
     button.setAttribute('aria-pressed', on ? 'true' : 'false');
   };
 
+  // ---- the say band ------------------------------------------------------
+  // The band is reserved from the cap the SERVER enforces on a `say`
+  // (SAY_RUNES = 120 in coworld/plans.py; the Nim module truncates to the same
+  // 120 before it hands the string to the DOM), measured in the chip's own
+  // font at the chip's own width -- never a number chosen by eye. Reserved
+  // whether or not anyone is speaking, so the board does not move when a line
+  // lands.
+  //
+  // The measurement is an upper bound because the chip is `word-break:
+  // break-all`: every line fills to the box edge, so an unbroken run of the
+  // widest rune in the font is the tallest a 120-rune remark can render. The
+  // candidates are the widest a remark can be made of -- a Latin cap, a CJK
+  // ideograph (one em, and one rune each against the cap), an emoji.
+  var SAY_RUNES = 120;
+  var SAY_ALIAS_RUNES = 8;
+  var SAY_GAUGE_RUNES = ['W', '\u4e00', '\ud83d\ude00'];
+  // A short viewport cannot afford a band that would leave no board. Past this
+  // share of the viewport height the chip type scales down (--sayfit) so the
+  // whole cap still fits -- the remark is never cut.
+  var SAY_BAND_SHARE = 0.35;
+  var SAY_FIT_FLOOR = 0.2;
+
+  function ccRepeat(rune, count) {
+    var out = '';
+    for (var i = 0; i < count; i++) out += rune;
+    return out;
+  }
+
+  function sayGaugeHtml() {
+    var html = '';
+    for (var i = 0; i < SAY_GAUGE_RUNES.length; i++) {
+      var rune = SAY_GAUGE_RUNES[i];
+      html += '<div class="say-chip say-gauge" aria-hidden="true">' +
+        '<b>' + ccRepeat(rune, SAY_ALIAS_RUNES) + '</b> ' +
+        ccRepeat(rune, SAY_RUNES) + '</div>';
+    }
+    return html;
+  }
+
+  // Returns the reserved band height in px, or 0 before the first frame has
+  // put any chips in the bar. `boxH` is the viewport height: a viewport too
+  // short to afford the full-cap band gets SMALLER TYPE, never a clipped
+  // remark -- --sayfit scales the chip font until the cap fits. The band never
+  // grows past its share of the viewport, which is also what stops the band
+  // and the board from chasing each other down to nothing (a taller band
+  // narrows the board, which narrows the chips, which needs a taller band).
+  function ccSayBand(boxH) {
+    var bar = $('saybar');
+    if (!bar) return 0;
+    if (!bar.offsetParent) return 0;   // hidden by the short-viewport rule
+    var chips = bar.querySelectorAll('.say-chip:not(.say-gauge)');
+    var gauges = bar.querySelectorAll('.say-gauge');
+    if (!chips.length || !gauges.length) return 0;
+    bar.style.minHeight = '';
+    // The narrowest chip, floored: dense wrapping is knife-edge, so a gauge
+    // measured on a sub-pixel wider box can under-report by a whole line.
+    var width = Infinity;
+    for (var c = 0; c < chips.length; c++) {
+      width = Math.min(width, Math.floor(chips[c].getBoundingClientRect().width));
+    }
+    var affordable = Math.max(1, (boxH || 0) * SAY_BAND_SHARE);
+    var fit = 1, tallest = 0;
+    for (var pass = 0; pass < 6; pass++) {
+      bar.style.setProperty('--sayfit', fit);
+      tallest = 0;
+      for (var g = 0; g < gauges.length; g++) {
+        gauges[g].style.width = width + 'px';
+        tallest = Math.max(tallest, gauges[g].getBoundingClientRect().height);
+      }
+      if (tallest <= affordable || fit <= SAY_FIT_FLOOR) break;
+      fit = Math.max(SAY_FIT_FLOOR, fit * Math.sqrt(affordable / tallest));
+    }
+    var band = Math.ceil(Math.min(tallest, affordable));
+    bar.style.minHeight = band + 'px';
+    return band;
+  }
+
   var ccSayBar = function (s) {
     var bar = $('saybar');
     if (!bar) return;
@@ -102,6 +179,7 @@
       html += '<div class="say-chip' + (say ? '' : ' empty') + '" style="--sc:' + colour + '">' +
         '<b>' + esc(seat.alias || '') + '</b> ' + esc(say || 'no word yet') + '</div>';
     });
+    html += sayGaugeHtml();
     if (bar.innerHTML !== html) bar.innerHTML = html;
   };
 
@@ -351,6 +429,9 @@
       stage.classList.toggle('tiny', boardW <= 620);
       // The reserved head band is the scorebug PLUS the appended dish ticker
       // and say band, so a landing say line never pushes the board around.
+      // The say band is measured from the 120-rune cap AFTER the scale above,
+      // because the chip's font and width both ride --hudscale.
+      ccSayBand(boxH);
       var sbHeight = scorebug ? scorebug.offsetHeight : 0;
       var dtHeight = ticker ? ticker.offsetHeight : 0;
       var sayHeight = sayband ? sayband.offsetHeight : 0;
