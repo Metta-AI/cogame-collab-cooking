@@ -19,6 +19,8 @@ from collab_cooking.coworld.replay import (
     EVENT_NAMES,
     REPLAY_FORMAT,
     REPLAY_PROTOCOL,
+    TickState,
+    derive_events,
 )
 from collab_cooking.game.game import (
     TICKET_DEADLINE,
@@ -234,3 +236,44 @@ def test_heat_is_the_cumulative_blocked_move_count(artifacts: dict) -> None:
     # other tile would tint different tiles from the ones the replay names.
     assert {(x, y): count for x, y, count in document["heat"]} == blocked
     assert sum(blocked.values()) > 0, "the fixture must actually block some moves"
+
+
+def test_two_serves_in_one_tick_get_the_two_recipes_that_left_the_board() -> None:
+    """r2 review R2-O8: the serve/expire split and the per-serve recipe were
+    computed independently, so every serve in a tick claimed the FIRST
+    departed ticket's recipe and a tick with a serve plus an expiry could
+    report the expired ticket as served."""
+    station_pos = {"order_board": (1, 2), "serving_station": (3, 4)}
+    cogs = [{"pos": (0, 0), "carrying": "", "success": True} for _ in range(2)]
+    previous = TickState(
+        step=10,
+        cogs=cogs,
+        stations={"order_board": {"ticket_0_soup": 1, "ticket_1_salad": 1, "ticket_2_fries": 1}},
+        station_pos=station_pos,
+        delivered=[0, 0],
+    )
+    current = TickState(
+        step=11,
+        cogs=cogs,
+        stations={"order_board": {"ticket_2_fries": 1}},
+        station_pos=station_pos,
+        delivered=[1, 1],
+    )
+    events = derive_events(previous, current, ["noop", "noop"], ["Cog-A", "Cog-B"], {})
+    serves = [event for event in events if event["ev"] == "serve"]
+    assert [event["recipe"] for event in serves] == ["soup", "salad"]
+    assert [event["slot"] for event in serves] == [0, 1]
+    assert not [event for event in events if event["ev"] == "order_expire"]
+
+    # ...and one serve plus one expiry in the same tick is one of each, not
+    # two serves or two expiries.
+    current_mixed = TickState(
+        step=11,
+        cogs=cogs,
+        stations={"order_board": {"ticket_2_fries": 1}},
+        station_pos=station_pos,
+        delivered=[1, 0],
+    )
+    mixed = derive_events(previous, current_mixed, ["noop", "noop"], ["Cog-A", "Cog-B"], {})
+    assert [event["recipe"] for event in mixed if event["ev"] == "serve"] == ["soup"]
+    assert [event["ticket"] for event in mixed if event["ev"] == "order_expire"] == ["ticket_1_salad"]
