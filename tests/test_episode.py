@@ -62,6 +62,37 @@ def test_a_complete_episode_writes_both_artifacts(tmp_path: Path) -> None:
     assert per_seat == results["delivered"]
 
 
+def test_a_nine_hundred_tick_episode_runs_to_completion(tmp_path: Path) -> None:
+    """The length every published variant declares, played to the last tick.
+
+    The 480-tick cases above are the certification fixture's length. The league
+    runs 900, and on 2026-08-25 that was the difference between a green certify
+    and every league episode dying `game_unhealthy` before uvicorn bound: the
+    ticket encoding scaled with `max_steps` and blew mettagrid's one-byte
+    feature-id space. `tests/test_feature_budget.py` guards the construction;
+    this guards the play.
+    """
+    out = full_episode(tmp_path, layout="open-kitchen", max_steps=900)
+    results = out["results"]
+    assert results["reason"] == "complete"
+    assert results["steps"] == 900
+
+    replay = json.loads(out["replay_bytes"].decode("utf-8"))
+    assert len(replay["ticks"]) == 900
+    arrivals = [
+        event
+        for tick in replay["ticks"]
+        for event in tick.get("ev", [])
+        if event["ev"] == "order_arrive"
+    ]
+    # The design pins ~50 tickets in a 900-tick episode (one every 18 ticks);
+    # the slot pool recycles under them, so the count must not sag with it.
+    assert len(arrivals) == 50
+    assert results["orders_arrived"] == len(arrivals)
+    # And a recycled slot is still ONE ticket at a time on the board.
+    assert results["orders_expired"] + results["dishes"] <= len(arrivals)
+
+
 def test_two_runs_of_one_seed_are_byte_identical_modulo_generated_at(tmp_path: Path) -> None:
     first = full_episode(tmp_path / "a", max_steps=180)
     second = full_episode(tmp_path / "b", max_steps=180)

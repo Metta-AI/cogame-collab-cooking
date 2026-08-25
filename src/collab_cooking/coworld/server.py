@@ -42,7 +42,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from collab_cooking.coworld.live_episode import EpisodeConfig, LiveMettaGridEpisode
 from collab_cooking.coworld.llm import LlmPlanner
-from collab_cooking.missions.kitchen import make_kitchen_mission
+from collab_cooking.missions.kitchen import mission_for_config
 
 PROCESS_START = time.monotonic()
 
@@ -113,20 +113,7 @@ class CoworldGame:
         self.config.num_agents = len(self.tokens)
         self.results_path = results_path
         self.replay_path = replay_path
-        env = make_kitchen_mission(
-            self.config.layout,
-            self.config.max_steps,
-            num_agents=self.config.num_agents,
-            ticket_interarrival=self.config.ticket_interarrival,
-            ticket_deadline=self.config.ticket_deadline,
-            order_queue_max=self.config.order_queue_max,
-            chop_ticks=self.config.chop_ticks,
-            wash_ticks=self.config.wash_ticks,
-            soup_cook_ticks=self.config.soup_cook_ticks,
-            soup_burn_ticks=self.config.soup_burn_ticks,
-            fries_cook_ticks=self.config.fries_cook_ticks,
-            fries_burn_ticks=self.config.fries_burn_ticks,
-        )
+        env = mission_for_config(self.config)
         planner = LlmPlanner(
             model=self.config.model,
             max_output_tokens=self.config.max_output_tokens,

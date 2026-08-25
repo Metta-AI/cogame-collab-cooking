@@ -31,8 +31,12 @@ from collab_cooking.game.game import (
     POT_SOUP_COOKING,
     POT_SOUP_READY,
     QUEUE_SOUP,
+    TICKET_DEADLINE,
+    TICKET_INTERARRIVAL,
     VEG,
     build_ticket_specs,
+    ticket_slot_count,
+    ticket_slot_resources,
 )
 from collab_cooking.kitchens.layouts import open_tiles, stations
 from collab_cooking.missions.kitchen import make_kitchen_mission
@@ -391,3 +395,39 @@ def test_arrivals_are_skipped_once_the_queue_is_full() -> None:
         live = sum(v for k, v in board.items() if k.startswith("ticket_"))
         assert live <= 8
     assert live > 0
+
+
+def test_ticket_slots_are_a_bounded_pool_recycled_across_the_episode() -> None:
+    """Tickets are identified by a fixed pool of slot resources, so the
+    resource list -- and mettagrid's one-byte feature-id space with it -- does
+    not grow with `max_steps`. Ticket 0 and ticket 10 are different tickets
+    that share slot 0, 180 ticks apart, and 180 > the 50-tick deadline, so the
+    slot is always free when the next ticket is due."""
+    slots = ticket_slot_count()
+    assert slots == 10
+    assert slots % 5 == 0, "a slot's recipe is fixed by its position in the cycle"
+    assert slots > TICKET_DEADLINE // TICKET_INTERARRIVAL + 1
+
+    specs = build_ticket_specs(900)
+    assert len({spec.resource for spec in specs}) == slots
+    assert specs[0].resource == specs[10].resource == "ticket_000_soup"
+    assert specs[10].arrival - specs[0].arrival > TICKET_DEADLINE
+
+    env = make_kitchen_mission(LAYOUT, 900)
+    ticket_resources = [name for name in env.game.resource_names if name.startswith("ticket_")]
+    assert len(ticket_resources) == slots
+    assert ticket_resources == ticket_slot_resources(slots)
+    # The same pool at every episode length: this is the whole invariant.
+    assert len(make_kitchen_mission(LAYOUT, 120).game.resource_names) == len(env.game.resource_names)
+
+
+def test_a_recycled_slot_carries_the_next_ticket_after_the_first_one_dies() -> None:
+    sim = build(max_steps=400)
+    assert inventory_of(sim, "order_board").get("ticket_000_soup", 0) == 1
+    # Ticket 0 expires at tick 50; ticket 10 arrives into the same slot at 180.
+    for _ in range(120):
+        step_all(sim)
+    assert inventory_of(sim, "order_board").get("ticket_000_soup", 0) == 0
+    for _ in range(65):
+        step_all(sim)
+    assert inventory_of(sim, "order_board").get("ticket_000_soup", 0) == 1
