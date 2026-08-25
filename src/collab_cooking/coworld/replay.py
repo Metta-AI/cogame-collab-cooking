@@ -305,7 +305,11 @@ def derive_events(
         y, x = cog["pos"]
         target = _move_target(cog["pos"], action)
         occupied = any(other["pos"] == target for i, other in enumerate(current.cogs) if i != slot)
-        heat[(target[1], target[0])] = heat.get((target[1], target[0]), 0) + 1
+        # Keyed by the tile the event carries -- the cog's own -- so the
+        # replay's end-of-episode `heat` is exactly what the viewer
+        # accumulates live from the `blocked` events as the playhead moves.
+        # Keying it by the target tile made the two name different tiles.
+        heat[(x, y)] = heat.get((x, y), 0) + 1
         events.append(
             {
                 "ev": "blocked",
