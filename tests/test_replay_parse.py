@@ -15,6 +15,11 @@ import pytest
 from collab_cooking.coworld.llm import LlmPlanner
 from collab_cooking.coworld.plans import SAY_RUNES
 from collab_cooking.coworld.replay import EVENT_NAMES, REPLAY_FORMAT, REPLAY_PROTOCOL
+from collab_cooking.game.game import (
+    TICKET_DEADLINE,
+    TICKET_FIRST_ARRIVAL,
+    TICKET_INTERARRIVAL,
+)
 from tests.harness import fast_cert_config, prompt_registration, run_episode, scripted_registration
 from tests.test_llm import StubTransport
 
@@ -136,6 +141,29 @@ def test_the_tick_records_have_the_documented_shape(artifacts: dict) -> None:
             seen_st += 1
     # `st` is omitted when unchanged, so it must NOT be on every tick.
     assert 0 < seen_st < len(document["ticks"])
+
+
+def test_every_live_ticket_carries_the_tick_it_expires_on(artifacts: dict) -> None:
+    """The clock reads `3 ORDERS LIVE - 1 EXPIRING`, and the viewer counts a
+    ticket as expiring from `expires - tick <= 12`. Without the field that
+    readout can never fire."""
+    document = json.loads(artifacts["replay_bytes"].decode("utf-8"))
+    max_steps = document["config"]["max_steps"]
+    stations: dict | None = None
+    seen = 0
+    expiring = 0
+    for tick in document["ticks"]:
+        stations = tick.get("st", stations)
+        assert stations is not None
+        for ticket in stations["board"]["tickets"]:
+            seen += 1
+            arrival = TICKET_FIRST_ARRIVAL + ticket["i"] * TICKET_INTERARRIVAL
+            assert ticket["expires"] == min(max_steps, arrival + TICKET_DEADLINE)
+            assert ticket["expires"] >= tick["t"], "a live ticket has not expired yet"
+            if ticket["expires"] - tick["t"] <= 12:
+                expiring += 1
+    assert seen, "the fixture must carry live tickets"
+    assert expiring, "no frame could ever have shown an EXPIRING order"
 
 
 def test_the_kitchen_block_is_self_sufficient(artifacts: dict) -> None:

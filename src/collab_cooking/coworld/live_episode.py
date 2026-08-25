@@ -281,6 +281,7 @@ class LiveMettaGridEpisode:
         self._obs_parser = ObsParser(policy_env)
         self._pass_counters = pass_counters(config.layout)
         self.heat: dict[tuple[int, int], int] = {}
+        self.ticket_expiries = replay_mod.ticket_expiries(config.max_steps)
         self.feed: list[dict[str, Any]] = []
         self.beats: list[dict[str, Any]] = []
         self.ticker: list[dict[str, Any]] = []
@@ -1021,7 +1022,7 @@ class LiveMettaGridEpisode:
             "paused": self.paused,
             "done": self.done,
             "reason": self.reason,
-            "stations": replay_mod.station_summary(self.state),
+            "stations": replay_mod.station_summary(self.state, self.ticket_expiries),
             "cogs": cogs,
             "feed": self.feed[-FEED_LINES:],
         }

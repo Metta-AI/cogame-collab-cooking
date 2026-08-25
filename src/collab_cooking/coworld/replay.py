@@ -39,6 +39,7 @@ from collab_cooking.game.game import (
     QUEUE_SOUP,
     RECIPE_BY_DISH_RESOURCE,
     WASH_PROGRESS,
+    build_ticket_specs,
 )
 from collab_cooking.kitchens.layouts import dimensions, grid, stations
 
@@ -142,6 +143,16 @@ def fryer_state(inv: dict[str, int]) -> str:
     if inv.get(FRYER_FRIES_COOKING, 0) > 0:
         return "cooking"
     return "idle"
+
+
+def ticket_expiries(max_steps: int) -> dict[int, int]:
+    """Ticket index -> the tick it expires on.
+
+    Read from the schedule the env itself lays down at config time
+    (`build_ticket_specs`, the same call `make_env` makes), so the tick the
+    viewer counts down to is the tick the engine expires the ticket on.
+    """
+    return {spec.index: spec.expiry for spec in build_ticket_specs(max_steps)}
 
 
 def _live_tickets(board: dict[str, int]) -> list[str]:
@@ -393,7 +404,7 @@ def _station_events(previous: TickState, current: TickState) -> list[dict[str, A
     return events
 
 
-def station_summary(state: TickState) -> dict[str, Any]:
+def station_summary(state: TickState, expiries: dict[int, int] | None = None) -> dict[str, Any]:
     """The compact `st` block the viewer reads."""
     chop = state.stations.get("chopping_station", {})
     pot = state.stations.get("cooking_station", {})
@@ -409,8 +420,15 @@ def station_summary(state: TickState) -> dict[str, Any]:
             "salad": board.get(QUEUE_SALAD, 0),
             "soup": board.get(QUEUE_SOUP, 0),
             "fries": board.get(QUEUE_FRIES, 0),
+            # `expires` is the absolute tick this ticket dies on: the clock
+            # readout counts an order EXPIRING from it, so a ticket without
+            # one can never make "3 ORDERS LIVE - 1 EXPIRING" fire.
             "tickets": [
-                {"i": int(name.split("_")[1]), "recipe": name.rsplit("_", 1)[-1]}
+                {
+                    "i": int(name.split("_")[1]),
+                    "recipe": name.rsplit("_", 1)[-1],
+                    "expires": (expiries or {}).get(int(name.split("_")[1]), -1),
+                }
                 for name in _live_tickets(board)
             ],
         },
@@ -435,6 +453,7 @@ class ReplayWriter:
         self.config = config
         self.seats = seats
         self.generated_at = generated_at
+        self.ticket_expiries = ticket_expiries(int(config.get("max_steps", 0) or 0))
         self.ticks: list[dict[str, Any]] = []
         self.heat: dict[tuple[int, int], int] = {}
         self._last_stations: dict[str, Any] | None = None
@@ -454,7 +473,7 @@ class ReplayWriter:
             ],
             "sc": list(state.delivered),
         }
-        summary = station_summary(state)
+        summary = station_summary(state, self.ticket_expiries)
         if summary != self._last_stations:
             record["st"] = summary
             self._last_stations = summary
