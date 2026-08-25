@@ -1,6 +1,5 @@
 {
   "$schema": "https://softmax.com/schemas/coworld-manifest.json",
-  "version": "0.1.0",
   "tags": [
     "cooperation",
     "melting-pot",
@@ -10,12 +9,12 @@
     "llm"
   ],
   "episode_timeout_minutes": 20,
-  "replay_viewer": {
-    "bundle": "static-replay-viewer"
-  },
   "game": {
     "name": "collab_cooking",
-    "display_name": "Collaborative Cooking",
+    "owner": "daveey@softmax.com",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
     "description": "Four cogs share one kitchen for 900 ticks. Tickets arrive on an order board and expire; a dish is a chain of single-item errands and a cog can carry exactly one thing. Team score = dishes served. Eight Melting Pot kitchens, each isolating one coordination problem.",
     "runnable": {
       "type": "game",

@@ -26,6 +26,7 @@ from collab_cooking.kitchens.layouts import (  # noqa: E402
 
 IMAGE = "{{COLLAB_COOKING_IMAGE}}"
 GAME_NAME = "collab_cooking"
+OWNER = "daveey@softmax.com"
 SLUG = "collab-cooking"
 NUM_AGENTS = 4
 MAX_STEPS = 900
@@ -281,13 +282,19 @@ def protocols() -> dict:
 def manifest() -> dict:
     return {
         "$schema": "https://softmax.com/schemas/coworld-manifest.json",
-        "version": "0.1.0",
         "tags": ["cooperation", "melting-pot", "grid", "kitchen", "multi-agent", "llm"],
         "episode_timeout_minutes": 20,
-        "replay_viewer": {"bundle": "static-replay-viewer"},
         "game": {
             "name": GAME_NAME,
-            "display_name": "Collaborative Cooking",
+            # `coworld build` validates this file with its own loader before it
+            # touches docker, and the top level is `extra="forbid"`: the ONLY
+            # place `replay_viewer` is read from is `game` (bundle.py:81,
+            # upload.py:927), `owner` is required, and neither a top-level
+            # `version` nor a `game.display_name` exists in the schema.
+            # `game.version` is set by `coworld build --version`, so the file
+            # must not carry it either.
+            "owner": OWNER,
+            "replay_viewer": {"bundle": "static-replay-viewer"},
             "description": (
                 "Four cogs share one kitchen for 900 ticks. Tickets arrive on an order "
                 "board and expire; a dish is a chain of single-item errands and a cog "

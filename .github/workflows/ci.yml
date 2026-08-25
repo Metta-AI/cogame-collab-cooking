@@ -59,6 +59,20 @@ jobs:
       - name: Run the tests
         run: python -m pytest tests/ -v
 
+      # The manifest template is the input to coworld-release.yml's FIRST step
+      # ("Build the Coworld manifest"), and `coworld build` validates it with a
+      # model that forbids extra keys at every level before it touches docker.
+      # Nothing else in CI runs that loader, so a misplaced key -- e.g.
+      # `replay_viewer` at the top level instead of under `game`, where the
+      # package reads it -- would only surface at phase 40 with the release
+      # half-run. Its own venv: coworld pulls a large, unrelated dependency set.
+      - name: Validate the manifest with the pinned coworld's own loader
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/coworld-loader
+          /tmp/coworld-loader/bin/pip install --quiet "coworld==0.1.42"
+          /tmp/coworld-loader/bin/python tools/ci/check_manifest_loads.py
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.

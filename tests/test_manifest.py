@@ -122,7 +122,13 @@ def test_docs_readme_is_inline_and_byte_identical_to_the_readme() -> None:
 
 
 def test_the_replay_viewer_is_the_static_bundle() -> None:
-    assert MANIFEST["replay_viewer"] == {"bundle": "static-replay-viewer"}
+    # Under `game`, which is the ONLY place the coworld package reads it from
+    # (bundle.py gates the build hook on `manifest.game.replay_viewer`, and
+    # upload.py gates the bundle upload on `manifest["game"]["replay_viewer"]`).
+    # The manifest model forbids extra keys, so a top-level declaration is
+    # rejected outright by `coworld build`.
+    assert MANIFEST["game"]["replay_viewer"] == {"bundle": "static-replay-viewer"}
+    assert "replay_viewer" not in MANIFEST
     raw = (ROOT / "src" / "collab_cooking" / "coworld" / "server.py").read_text(encoding="utf-8")
     # Route declarations only: the module docstring says what was deleted, and
     # saying so is not a route.
@@ -132,6 +138,24 @@ def test_the_replay_viewer_is_the_static_bundle() -> None:
     for gone in ("/client/replay", "create_replay_app", "COGAME_REPLAY_SERVER",
                  "COGAME_LOAD_REPLAY_URI", '@app.websocket("/replay")'):
         assert gone not in server, f"{gone} is still live in server.py"
+
+
+def test_the_manifest_carries_only_keys_the_coworld_schema_admits() -> None:
+    """`coworld build` validates the template with an `extra="forbid"` model
+    before it touches docker, so a key in the wrong object fails the first step
+    of the release. `tools/ci/check_manifest_loads.py` runs the real loader in
+    CI; these are the four the loader rejected on 2026-08-25."""
+    assert set(MANIFEST) <= {
+        "$schema", "tags", "game", "player", "reporter", "commissioner", "grader",
+        "diagnoser", "optimizer", "variants", "certification", "players_per_user",
+        "episode_timeout_minutes",
+    }, "the top level of the manifest model is additionalProperties: false"
+    game = MANIFEST["game"]
+    assert "display_name" not in game, "game has no display_name field"
+    # game.version is set by `coworld build --version`; a template that carries
+    # it is refused outright.
+    assert "version" not in game
+    assert game["owner"], "game.owner is required"
 
 
 def test_the_runnable_carries_the_secret_uri_in_the_game_name_namespace() -> None:
@@ -182,6 +206,21 @@ def test_no_unsubstituted_scaffold_placeholders(path: str) -> None:
     assert residue <= {"<run_id>", "<name>", "<sha>", "<cow_id>"}, residue
     for placeholder in ("<slug>", "<IMAGE>", "<SEATS>"):
         assert placeholder not in text, f"{placeholder} was never substituted in {path}"
+
+
+def test_the_manifest_loader_check_runs_the_version_the_release_pins() -> None:
+    """The loader gate is only evidence if it validates against the coworld the
+    release actually runs, so the two pins must not drift apart."""
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    release = (ROOT / ".github" / "workflows" / "coworld-release.yml").read_text(encoding="utf-8")
+    assert "tools/ci/check_manifest_loads.py" in ci
+    gate = re.search(r'pip install --quiet "coworld==([0-9.]+)"', ci)
+    pinned = re.search(r'COWORLD_PKG: "coworld\[auth\]==([0-9.]+)"', release)
+    assert gate and pinned, "both pins must be greppable"
+    assert gate.group(1) == pinned.group(1), (
+        f"ci.yml validates the manifest with coworld {gate.group(1)} but the release "
+        f"runs {pinned.group(1)}"
+    )
 
 
 def test_the_hooks_ci_needs_are_executable() -> None:
