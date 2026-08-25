@@ -38,8 +38,8 @@ def test_num_agents_is_four_in_the_certification_fixture() -> None:
     cert = MANIFEST["certification"]
     assert cert["game_config"]["num_agents"] == NUM_AGENTS
     assert len(cert["game_config"]["players"]) == NUM_AGENTS
-    assert len(cert["game_config"]["tokens"]) == NUM_AGENTS
     assert len(cert["players"]) == NUM_AGENTS
+    assert "tokens" not in cert["game_config"], "connect tokens are runner-managed"
 
 
 def test_every_declared_bundled_player_is_seated_at_least_once() -> None:
