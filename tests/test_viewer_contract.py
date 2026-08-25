@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from collab_cooking.coworld.plans import SAY_RUNES
 from collab_cooking.coworld.replay import EVENT_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -141,6 +142,29 @@ def test_plate_css_survives_the_360px_featured_match_iframe() -> None:
     assert "flex: 1 1 auto" in plate
     assert "min-width: 3.2em" in plate
     assert "@media (max-width: 640px)" in GAME_CSS
+
+
+def test_the_say_band_is_reserved_from_the_rune_cap_the_server_enforces() -> None:
+    """The band is measured from SAY_RUNES in the chip's own font, not by eye.
+
+    `tools/ci/dom_text_smoke.mjs` is the gate that actually renders a full-cap
+    remark on every seat and measures it; this is the static half, so a chip
+    that goes back to `max-height` + `overflow: hidden` is red without a
+    browser (r2 review R2-O1: 54-81% of every full-cap remark was invisible).
+    """
+    assert f"var SAY_RUNES = {SAY_RUNES};" in GAME_JS
+    chip = re.sub(r"/\*.*?\*/", "", GAME_CSS.split("#saybar .say-chip {", 1)[1].split("}", 1)[0], flags=re.S)
+    assert "max-height" not in chip, "the say chip must not cap its own height"
+    assert "overflow: hidden" not in chip, "a clipped remark is the bug, not the fix"
+    # Every line fills to the box edge, which is what makes the measured
+    # gauge an upper bound on any 120-rune string.
+    assert "word-break: break-all" in chip
+    assert ".say-gauge" in GAME_CSS
+    body = GAME_JS.split("function relayout()", 1)[1]
+    assert "ccSayBand(boxH)" in body, "the band is reserved on every relayout"
+    # ...and it is reserved from the gauge, whether or not a seat is speaking.
+    band = GAME_JS.split("function ccSayBand(", 1)[1].split("\n  }", 1)[0]
+    assert "minHeight" in band and "say-gauge" in band
 
 
 def test_the_wasm_entry_the_link_flags_and_the_js_name_the_same_symbols() -> None:
