@@ -88,8 +88,10 @@ CERT_GAME_CONFIG = {
     "plan_interval_steps": 240,
     "player_connect_timeout_seconds": 90,
     "seed": 20260826,
+    # No "tokens": the episode runner mints one connect token per seat and injects them.
+    # A fixture that declares its own fails certification with
+    # `manifest_invalid: game_config must not include runner-managed tokens`.
     "players": [{"name": name} for name in PLAYER_NAMES],
-    "tokens": ["token-0", "token-1", "token-2", "token-3"],
 }
 
 
