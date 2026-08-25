@@ -411,6 +411,13 @@ class LiveMettaGridEpisode:
         await self._send_observations()
         while self.sim.current_step < self.config.max_steps and not self.sim.is_done():
             if self.paused:
+                # The guard is NOT paused. `pause` is a spectator control that
+                # anything reaching WS /global can send, and a paused loop
+                # advances no step, so without this the episode would sit here
+                # until the platform killed it, with no artifacts and no exit.
+                if self._deadline_reached():  # 10
+                    await self._settle("deadline")
+                    return
                 await asyncio.sleep(0.05)
                 continue
             step = int(self.sim.current_step)
