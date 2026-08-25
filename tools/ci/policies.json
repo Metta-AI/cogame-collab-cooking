@@ -1,9 +1,0 @@
-[{"name":"collab-cooking-expo","run":"/bin/collab-cooking-player",
-  "env":{"PLAYER_PROMPT":"Read the board first and name the recipe you are working. Do one job at a time and say which job you have taken so nobody duplicates it. If your item's next station is on the other side of a counter, put it on the counter and say so rather than walking round."}},
- {"name":"collab-cooking-linecook","run":"/bin/collab-cooking-player",
-  "env":{"PLAYER_PROMPT":"Keep the pot and the fryer busy: nothing else scores as fast as a cooker that is never idle. Take the station nearest you that unblocks the next dish, yield to the cog carrying a finished dish, and never let a ready pot sit long enough to burn."},
-  "player":"ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"},
- {"name":"collab-cooking-brigade","run":"/bin/collab-cooking-player",
-  "env":{"PLAYER_SCRIPTED":"brigade"}},
- {"name":"collab-cooking-passer","run":"/bin/collab-cooking-player",
-  "env":{"PLAYER_SCRIPTED":"passer"}}]

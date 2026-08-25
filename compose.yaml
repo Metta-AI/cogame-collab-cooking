@@ -1,7 +1,0 @@
-services:
-  collab_cooking:
-    image: coworld-collab-cooking:latest
-    platform: linux/amd64
-    build:
-      context: .
-      network: host
