@@ -102,6 +102,34 @@ def test_the_deadline_path_scores_what_it_has_and_exits_zero(tmp_path: Path) -> 
     assert "deadline" in kinds and "episode_end" in kinds
 
 
+def test_a_paused_episode_still_settles_at_the_deadline(tmp_path: Path) -> None:
+    """`pause` is a spectator control on /global -- the certification runner's
+    own ping target. A paused loop advances no step, so the deadline guard has
+    to run there too or the episode never settles and writes nothing."""
+    config = fast_cert_config(
+        max_steps=480,
+        step_seconds=0.0,
+        shutdown_grace_seconds=0.0,
+        player_connect_timeout_seconds=2,
+        play_budget_fraction=0.6,
+        episode_timeout_seconds=30,
+    )
+    out = run_episode(
+        config,
+        FOUR_SCRIPTED,
+        tmp_path,
+        process_start=time.monotonic() - 100.0,
+        paused=True,
+        # Without the guard in the pause branch this loop is unbounded; the
+        # timeout turns that into a failure instead of a hung test run.
+        run_timeout=20,
+    )
+    results = out["results"]
+    assert results["reason"] == "deadline"
+    assert all(score >= 0 for score in results["scores"])
+    assert out["replay_bytes"], "a paused episode still writes both artifacts"
+
+
 def test_no_players_writes_zeroed_results_and_exits_zero(tmp_path: Path) -> None:
     config = fast_cert_config(
         max_steps=120, step_seconds=0.0, shutdown_grace_seconds=0.0,
