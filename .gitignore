@@ -6,3 +6,4 @@ nimcache/
 .venv/
 dom-text-smoke.json
 dom-text-smoke.png
+.pytest_cache/
