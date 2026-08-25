@@ -255,14 +255,17 @@ def derive_events(
     for name in sorted(live - prev_live):
         recipe = name.rsplit("_", 1)[-1]
         events.append({"ev": "order_arrive", "ticket": name, "recipe": recipe, **board_pos()})
-    served_now = sum(current.delivered) - sum(previous.delivered)
-    for name in sorted(prev_live - live):
+    # The tickets that left the board this tick, split once into the ones a
+    # serve took and the ones that expired. The state diff carries no ticket
+    # identity, so the split is by count -- but it is ONE split, and the serve
+    # events below draw their recipes from the same list in the same order, so
+    # a tick with two serves no longer reports the first departed ticket's
+    # recipe twice (r2 review R2-O8).
+    departed = sorted(prev_live - live)
+    served_now = max(0, sum(current.delivered) - sum(previous.delivered))
+    served_tickets, expired_tickets = departed[:served_now], departed[served_now:]
+    for name in expired_tickets:
         recipe = name.rsplit("_", 1)[-1]
-        # A ticket that left the board because it was SERVED is reported as a
-        # serve below, not as an expiry.
-        if served_now > 0:
-            served_now -= 1
-            continue
         events.append({"ev": "order_expire", "ticket": name, "recipe": recipe, **board_pos()})
 
     for slot, (before, after) in enumerate(zip(previous.cogs, current.cogs, strict=False)):
@@ -292,6 +295,7 @@ def derive_events(
     # `serve` is attributed to the seat whose delivered count went up.
     serving = current.station_pos.get("serving_station", (0, 0))
     dish_total = sum(previous.delivered)
+    recipes = [name.rsplit("_", 1)[-1] for name in served_tickets]
     for slot, (was, now) in enumerate(zip(previous.delivered, current.delivered, strict=False)):
         alias = aliases[slot] if slot < len(aliases) else f"Cog-{slot}"
         for extra in range(now - was):
@@ -302,7 +306,7 @@ def derive_events(
                     "ev": "serve",
                     "slot": slot,
                     "alias": alias,
-                    "recipe": _served_recipe(previous, current),
+                    "recipe": recipes.pop(0) if recipes else _queue_recipe(previous, current),
                     "dish": dish_total,
                     "x": serving[1],
                     "y": serving[0],
@@ -340,11 +344,8 @@ def derive_events(
     return events
 
 
-def _served_recipe(previous: TickState, current: TickState) -> str:
-    """Which recipe left the board this tick."""
-    gone = set(_live_tickets(previous.board)) - set(_live_tickets(current.board))
-    for name in sorted(gone):
-        return name.rsplit("_", 1)[-1]
+def _queue_recipe(previous: TickState, current: TickState) -> str:
+    """The recipe a serve took when no ticket left the board to name it."""
     for recipe, resource in (("salad", QUEUE_SALAD), ("soup", QUEUE_SOUP), ("fries", QUEUE_FRIES)):
         if current.board.get(resource, 0) < previous.board.get(resource, 0):
             return recipe
