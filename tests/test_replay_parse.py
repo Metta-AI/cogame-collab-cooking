@@ -14,7 +14,12 @@ import pytest
 
 from collab_cooking.coworld.llm import LlmPlanner
 from collab_cooking.coworld.plans import SAY_RUNES
-from collab_cooking.coworld.replay import EVENT_NAMES, REPLAY_FORMAT, REPLAY_PROTOCOL
+from collab_cooking.coworld.replay import (
+    DIFF_ORDER,
+    EVENT_NAMES,
+    REPLAY_FORMAT,
+    REPLAY_PROTOCOL,
+)
 from collab_cooking.game.game import (
     TICKET_DEADLINE,
     TICKET_FIRST_ARRIVAL,
@@ -141,6 +146,25 @@ def test_the_tick_records_have_the_documented_shape(artifacts: dict) -> None:
             seen_st += 1
     # `st` is omitted when unchanged, so it must NOT be on every tick.
     assert 0 < seen_st < len(document["ticks"])
+
+
+def test_every_tick_carries_its_events_in_the_declared_order(artifacts: dict) -> None:
+    """`DIFF_ORDER` is the specification, not a comment: the viewer's ticker,
+    feed and dish numbering read the list in the order it arrives."""
+    document = json.loads(artifacts["replay_bytes"].decode("utf-8"))
+    rank = {name: index for index, name in enumerate(DIFF_ORDER)}
+    multi = 0
+    for tick in document["ticks"]:
+        derived = [rank[e["ev"]] for e in tick.get("ev", []) if e["ev"] in rank]
+        assert derived == sorted(derived), f"tick {tick['t']} is out of DIFF_ORDER"
+        slots = [
+            e.get("slot")
+            for e in tick.get("ev", [])
+            if e["ev"] == "blocked" and e.get("slot") is not None
+        ]
+        assert slots == sorted(slots), f"tick {tick['t']}: ties resolve by ascending slot"
+        multi += len(derived) > 1
+    assert multi > 5, "the fixture must carry ticks with several events"
 
 
 def test_every_live_ticket_carries_the_tick_it_expires_on(artifacts: dict) -> None:

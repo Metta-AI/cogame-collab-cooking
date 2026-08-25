@@ -331,6 +331,12 @@ def derive_events(
                 "by": "cog" if occupied else "wall",
             }
         )
+    # The list a tick carries IS `DIFF_ORDER`. Emission is convenient rather
+    # than ordered -- `plate_up` comes out inside the per-cog loop and the
+    # station events before `serve` -- so put it in the declared order here.
+    # The sort is stable, so ties still resolve by ascending slot.
+    rank = {name: index for index, name in enumerate(DIFF_ORDER)}
+    events.sort(key=lambda event: rank.get(event["ev"], len(DIFF_ORDER)))
     return events
 
 
