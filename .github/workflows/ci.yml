@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m venv /tmp/coworld-loader
-          /tmp/coworld-loader/bin/pip install --quiet "coworld==0.1.42"
+          /tmp/coworld-loader/bin/pip install --quiet "coworld==0.1.43"
           /tmp/coworld-loader/bin/python tools/ci/check_manifest_loads.py
 
   # ---------------------------------------------------------------------
