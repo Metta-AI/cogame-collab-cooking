@@ -55,6 +55,9 @@ const
   # prefix too, or the last runes of every full-cap remark are dropped before
   # the CSS ever sees the line (r2 review R2-O4).
   FeedRunes = SayRunes + AliasRunes + 2
+  ReplayHalfSpeed = 0
+    ## `speed` sentinel for the replay-only 1/2x playback (command "5"):
+    ## one tick is spent every other presentation frame (halfPhase parity).
 
   EventNames = [
     "episode_start", "order_arrive", "order_expire", "pickup", "deposit",
@@ -134,6 +137,10 @@ var
   playhead = 0
   playing = true
   speed = 1
+    ## Integer playback multiplier, or ReplayHalfSpeed (0) for 1/2x.
+  halfPhase = false
+    ## Frame parity while at 1/2x speed: ticks advance only on the odd
+    ## frames, toggled once per ccFrame.
   looping = false
   heatOn = false
   lastFrameTick = -1
@@ -852,6 +859,12 @@ proc emitFrame() =
 # ---------------------------------------------------------------------------
 # Chrome JSON (sprite 4090's label) -- the viewer's whole state contract.
 
+proc displaySpeed(): float =
+  ## The speed the chrome shows: 0.5 at the half-speed sentinel, else the
+  ## integer multiplier.
+  if speed == ReplayHalfSpeed: 0.5
+  else: float(speed)
+
 proc chromeJson(): string =
   let tick = ticks[clamp(playhead, 0, ticks.len - 1)]
   let last = playhead >= ticks.len - 1
@@ -915,7 +928,7 @@ proc chromeJson(): string =
     "expired": expired,
     "burned": {"pot": burnedPot, "fryer": burnedFryer},
     "playing": playing,
-    "speed": speed,
+    "speed": displaySpeed(),
     "loop": looping,
     "heatOn": heatOn
   }
@@ -983,6 +996,7 @@ proc ccLoadReplay(data: ptr uint8, length: cint): cint
     playhead = 0
     playing = true
     speed = 1
+    halfPhase = false
     looping = false
     heatOn = false
     lastFrameTick = -1
@@ -1024,6 +1038,7 @@ proc applyCommand(text: string) =
   of "heat": heatOn = not heatOn
   of "heat:1": heatOn = true
   of "heat:0": heatOn = false
+  of "5": speed = ReplayHalfSpeed
   of "1": speed = 1
   of "2": speed = 2
   of "3": speed = 3
@@ -1045,6 +1060,7 @@ proc ccFrame(): cint {.exportc: "cc_frame", cdecl.} =
   if not runtimeLoaded:
     return 0
   try:
+    halfPhase = not halfPhase
     if playing:
       if playhead >= ticks.len - 1:
         if looping:
@@ -1053,7 +1069,11 @@ proc ccFrame(): cint {.exportc: "cc_frame", cdecl.} =
         else:
           playing = false
       else:
-        seekTo(playhead + speed)
+        # 1/2x: spend one tick only every other frame (halfPhase parity).
+        let steps =
+          if speed == ReplayHalfSpeed: (if halfPhase: 1 else: 0)
+          else: speed
+        seekTo(playhead + steps)
     renderCurrent()
     lastFrameTick = playhead
     return 1

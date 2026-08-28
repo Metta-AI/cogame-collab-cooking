@@ -270,8 +270,38 @@ def test_the_chrome_is_byte_identical_to_the_starter() -> None:
     starter = Path("/workspace/starters/coworld-ctf/client")
     if not starter.exists():
         pytest.skip("the coworld-ctf starter is not mounted here")
-    for name in ("chrome_common.js", "broadcast_core.js"):
-        assert (ROOT / "client" / name).read_bytes() == (starter / name).read_bytes()
+    assert (ROOT / "client" / "broadcast_core.js").read_bytes() == (starter / "broadcast_core.js").read_bytes()
+    # chrome_common.js is the starter's bytes PLUS the fleet-wide 0.5x replay
+    # transport patch: the SPEEDS fallback and the speed->command map each gain
+    # the half-speed entry, and nothing else changes.
+    patched = (
+        (starter / "chrome_common.js")
+        .read_text(encoding="utf-8")
+        .replace("[1, 2, 3, 4, 8, 16]", "[0.5, 1, 2, 3, 4, 8, 16]")
+        .replace("{ 1: '1',", "{ 0.5: '5', 1: '1',")
+    )
+    assert (ROOT / "client" / "chrome_common.js").read_text(encoding="utf-8") == patched
+
+
+def test_the_half_speed_contract_spans_the_module_and_the_chrome() -> None:
+    """The fleet-wide 1/2x replay speed: the chrome offers a 0.5x chip mapped
+    to command '5', the module holds it as the ReplayHalfSpeed sentinel and
+    spends one tick every OTHER frame (halfPhase parity), and the state doc's
+    `speed` shows 0.5 so the chip highlights."""
+    assert "0.5: '5'" in CHROME, "the speed chips map the 0.5x chip to command '5'"
+    assert "[0.5, 1, 2, 3, 4, 8, 16]" in CHROME, "the raw file:// SPEEDS fallback carries 0.5"
+    assert "ReplayHalfSpeed = 0" in WASM_ENTRY
+    assert 'of "5": speed = ReplayHalfSpeed' in WASM_ENTRY
+    assert '"speed": displaySpeed(),' in WASM_ENTRY, "the chrome doc shows 0.5, not the sentinel"
+    assert "if speed == ReplayHalfSpeed: 0.5" in WASM_ENTRY
+    # One tick every other frame: the parity flips first thing in cc_frame and
+    # gates the step to 1/0 at the sentinel.
+    frame = WASM_ENTRY.split('exportc: "cc_frame"', 1)[1].split("proc ", 1)[0]
+    assert "halfPhase = not halfPhase" in frame
+    assert "if speed == ReplayHalfSpeed: (if halfPhase: 1 else: 0)" in frame
+    # A fresh load never starts mid-phase.
+    load = WASM_ENTRY.split('exportc: "cc_load_replay"', 1)[1].split("proc ", 1)[0]
+    assert "halfPhase = false" in load
 
 
 def test_the_state_contract_the_page_reads_is_the_one_the_module_emits() -> None:
