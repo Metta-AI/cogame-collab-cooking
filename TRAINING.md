@@ -29,7 +29,7 @@ curriculum; the default is the variant's full 900 ticks.
 From a Metta checkout, set the GameBridge command to this repository's
 `.venv/bin/python` and `tools/training_bridge.py`, plus `--variant` and a
 manifest variant ID. The numeric codec uses `observation_size=1510`,
-`actions=5`, `players=4`, and `max_decisions>=3600` with Metta's
+`action_sizes=[5]`, `players=4`, and `max_decisions>=3600` with Metta's
 `recipes.external.coworld` or `recipes.external.coworld_metta_rl` recipe.
 Keep the game package and manifest available to the bridge subprocess.
 
