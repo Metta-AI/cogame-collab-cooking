@@ -75,6 +75,9 @@ names exist spectator-side only.
 
 ## Repo
 
+Metta's native PufferLib training through the ordinary player action
+protocol is documented in [TRAINING.md](TRAINING.md).
+
 ```
 src/collab_cooking/kitchens/   the eight ASCII kitchens
 src/collab_cooking/game/       the mettagrid kitchen: stations, tickets, burn timers
