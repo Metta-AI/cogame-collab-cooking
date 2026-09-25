@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -34,9 +35,9 @@ CERT_CONFIG: dict[str, Any] = {
 class FakeSocket:
     """One player's end of the wire. Runs its brain synchronously."""
 
-    def __init__(self, registration: dict[str, Any]) -> None:
+    def __init__(self, registration: dict[str, Any], seat: PlayerSeat) -> None:
         self.registration = registration
-        self.seat = PlayerSeat()
+        self.seat = seat
         self.episode: LiveMettaGridEpisode | None = None
         self.connection_id = ""
         self.closed = False
@@ -58,7 +59,7 @@ class FakeSocket:
             self.configured = True
         elif kind == "observation":
             step = int(message["step"])
-            action_name, task = self.seat.act(message.get("observation") or [])
+            action_name, task = self.seat.observe(message)
             self.actions.append((step, action_name))
             await self.episode.handle_player_message(
                 self.connection_id,
@@ -119,6 +120,7 @@ def run_episode(
     process_start: float | None = None,
     paused: bool = False,
     run_timeout: float | None = None,
+    seat_factories: list[Callable[[], PlayerSeat]] | None = None,
 ) -> dict[str, Any]:
     """Run one episode to settlement and write both artifacts into `out_dir`.
 
@@ -145,7 +147,7 @@ def run_episode(
         sockets: list[FakeSocket] = []
         if connect:
             for slot, registration in enumerate(registrations):
-                socket = FakeSocket(registration)
+                socket = FakeSocket(registration, seat_factories[slot]() if seat_factories else PlayerSeat())
                 socket.episode = episode
                 sockets.append(socket)
                 socket.connection_id = await episode.connect_player(slot, socket)

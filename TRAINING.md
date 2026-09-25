@@ -43,6 +43,6 @@ All eight variants completed a full 900-tick GameBridge episode with 3,600
 accepted teacher actions each. A full `DecisionEnvironment` episode also
 finished with 1,510 values, five actions, and teacher targets. These checks
 verify the training protocol and game score. They do not measure a trained
-policy's quality. This bridge trains per-tick numeric actions; the hosted
-prompt-plan and radio policies remain separate. The typed choice can exercise
-Jev over the ordinary action schema but does not add a hosted Jev player.
+policy's quality. This bridge trains per-tick numeric actions. The hosted
+prompt-plan and Jev policies choose shift jobs while their ordinary players
+submit per-tick actions through the same seat observation/action protocol.

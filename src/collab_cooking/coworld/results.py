@@ -58,7 +58,7 @@ def build_results(
     if reason not in LEGAL_REASONS:
         raise ValueError(f"illegal results.reason {reason!r}; expected one of {LEGAL_REASONS}")
     dishes = sum(delivered)
-    prompt_seated = any(kind == "prompt" for kind in seat_kinds)
+    policy_seated = any(not kind.startswith("scripted") for kind in seat_kinds)
     scripted_seated = any(kind.startswith("scripted") for kind in seat_kinds)
     return {
         "game": GAME_NAME,
@@ -82,7 +82,7 @@ def build_results(
         "names": list(names),
         "aliases": list(aliases),
         "seat_kinds": list(seat_kinds),
-        "cross_play": bool(prompt_seated and scripted_seated),
+        "cross_play": bool(policy_seated and scripted_seated),
         "disconnected": [bool(v) for v in disconnected],
         "fallbacks": [int(v) for v in fallbacks],
         "llm_requests": int(llm_requests),

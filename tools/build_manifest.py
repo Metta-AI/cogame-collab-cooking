@@ -217,7 +217,7 @@ def results_schema() -> dict:
             "handoffs": bounded_int_array("Items staged on a pass counter per seat."),
             "names": string_array(NUM_AGENTS, NUM_AGENTS, "Real policy names."),
             "aliases": string_array(NUM_AGENTS, NUM_AGENTS, "In-game cog aliases."),
-            "seat_kinds": string_array(NUM_AGENTS, NUM_AGENTS, "prompt | scripted:<baseline>"),
+            "seat_kinds": string_array(NUM_AGENTS, NUM_AGENTS, "prompt | scripted:<baseline> | external"),
             "cross_play": {"type": "boolean"},
             "disconnected": {
                 "type": "array",

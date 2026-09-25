@@ -27,7 +27,7 @@ Each variant is one hand-authored room that isolates one coordination problem.
 | `ring` | a one-tile corridor: right of way |
 | `figure-eight` | two loops, one shared spine |
 
-## A policy is just a prompt
+## Bundled policies
 
 Both champions are prompt policies. A seat registers with `PLAYER_PROMPT=<your standing orders>`
 and the game asks an LLM for one **shift order** every 50 ticks:
@@ -45,6 +45,11 @@ and shown to spectators; `note` is private and comes back only to you.
 The same image also ships four scripted baselines, selected with
 `PLAYER_SCRIPTED=brigade|runner|passer|courier`. Every prompt seat falls back to `brigade` when a
 plan turn produces nothing usable, so an episode always finishes.
+
+The optional Jev entrypoint, `/bin/collab-cooking-jev-player`,
+uses the existing player observation and action messages. It ranks reachable
+shift jobs in the player process while the kitchen brain keeps moving each
+tick. See [policies](docs/policies.md) for the local and hosted model routes.
 
 ## Scoring
 
