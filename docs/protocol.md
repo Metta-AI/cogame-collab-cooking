@@ -20,10 +20,13 @@ policy needs to decode the token array.
 ```json
 {"type":"register","kind":"prompt","prompt":"<= 1200 runes"}
 {"type":"register","kind":"scripted","baseline":"brigade"}
+{"type":"register","kind":"external"}
 ```
 
 An unknown baseline, a malformed frame, or no registration within 5 s of connect is treated as
 `{"kind":"scripted","baseline":"brigade"}` -- never a disconnect.
+An `external` seat makes its own decisions over the same observation and action
+frames as every other seat. The game does not plan or call a model for it.
 
 ## game -> player, every tick: `observation`
 
@@ -48,6 +51,7 @@ centre).
 
 `src` is `"llm"` or `"fallback:<cause>"`; a fallback carries an empty `station`, which means "drop
 the directive and run your baseline". Scripted seats never receive this message.
+External seats never receive it either.
 
 ## player -> game, every tick: `action`
 

@@ -110,6 +110,9 @@ class Seat:
         action, self.state = self.brain.step_with_state(observation, self.state)
         return action.name, truncate_runes(action.talk or self.state.current_task, TALK_RUNES)
 
+    def observe(self, message: dict[str, Any]) -> tuple[str, str]:
+        return self.act(message["observation"])
+
     def apply_plan(self, message: dict[str, Any]) -> None:
         if self.brain is None or self.state is None:
             return
@@ -156,9 +159,7 @@ async def connect_with_retry(
             delay = min(CONNECT_RETRY_MAX_DELAY, delay * 2)
 
 
-async def run_player(url: str) -> None:
-    seat = Seat()
-    register = registration()
+async def run_player(url: str, seat: Seat, register: dict[str, Any]) -> None:
     baseline = register.get("baseline", DEFAULT_BASELINE) if register["kind"] == "scripted" else DEFAULT_BASELINE
     async with await connect_with_retry(url) as websocket:
         async for raw_message in websocket:
@@ -170,7 +171,7 @@ async def run_player(url: str) -> None:
                 _log(f"slot {seat.slot} ({seat.alias}) registered as {register['kind']} on {seat.layout}")
             elif kind == "observation":
                 step = int(message.get("step", 0))
-                action_name, task = seat.act(message.get("observation") or [])
+                action_name, task = seat.observe(message)
                 await websocket.send(
                     json.dumps(
                         {
@@ -188,10 +189,13 @@ async def run_player(url: str) -> None:
                 return
 
 
-def main() -> None:
+def main(
+    seat_factory: Callable[[], Seat] = Seat,
+    registration_factory: Callable[[], dict[str, Any]] = registration,
+) -> None:
     url = os.environ["COWORLD_PLAYER_WS_URL"]
     try:
-        asyncio.run(run_player(url))
+        asyncio.run(run_player(url, seat_factory(), registration_factory()))
     except Exception as exc:  # noqa: BLE001 - a dead socket is not a player failure
         _log(f"socket closed ({type(exc).__name__}: {exc}); exiting 0")
     sys.exit(0)

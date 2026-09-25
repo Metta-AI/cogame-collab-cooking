@@ -4,6 +4,17 @@ Repo: `Metta-AI/cogame-collab-cooking` (public). Coworld/game name `collab_cooki
 `collab-cooking`, page `https://softmax.com/collab-cooking`. In the new repo this note lives at
 `docs/plans/2026-08-25-collab-cooking-design.md`.
 
+## September 24 player policy extension
+
+The original prompt and scripted policies remain as specified below. The
+player protocol also accepts `kind: "external"` for policies that decide
+through its existing seat-local observation and named action messages. An
+external seat receives no game-side plan or model call. Results and replay
+record its `external` kind, and cross-play counts it when seated with a
+scripted policy. The optional Jev player ranks reachable shift jobs in its
+own process, then uses the existing kitchen brain to emit normal tick actions.
+The canonical prompt/scripted roster is unchanged.
+
 **Starter: `Metta-AI/coworld-overcogged`** (not mounted; fetched read-only with
 `gh api repos/Metta-AI/coworld-overcogged/tarball/main` — the repo is **private**, so a plain
 `git clone` with `GH_TOKEN` fails "Repository not found"; phase 20 must use the tarball or an
