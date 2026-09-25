@@ -103,9 +103,11 @@ def test_reason_outside_the_enum_is_refused() -> None:
         sample(reason="crashed")
 
 
-def test_cross_play_is_true_only_when_a_prompt_and_a_scripted_seat_sat_together() -> None:
+def test_cross_play_is_true_when_an_external_or_prompt_policy_sits_with_scripted() -> None:
     assert sample(seat_kinds=["prompt", "scripted:brigade", "scripted:passer", "prompt"])["cross_play"]
+    assert sample(seat_kinds=["external", "scripted:brigade", "scripted:passer", "scripted:courier"])["cross_play"]
     assert not sample(seat_kinds=["prompt"] * 4)["cross_play"]
+    assert not sample(seat_kinds=["external"] * 4)["cross_play"]
     assert not sample(seat_kinds=["scripted:brigade"] * 4)["cross_play"]
 
 

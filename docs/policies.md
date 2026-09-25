@@ -1,6 +1,20 @@
 # Policies
 
-One image, one player entrypoint (`/bin/collab-cooking-player`), switched by environment.
+The bundled prompt and scripted policies share `/bin/collab-cooking-player`.
+
+## Jev external player
+
+`/bin/collab-cooking-jev-player` registers as `external`. It
+receives the same seat-local token observations as the bundled players and
+sends ordinary named actions each tick. Every 50 ticks, Jev ranks the jobs
+reachable from that seat's position. The existing player-side kitchen brain
+keeps acting while the request runs and executes the selected job when the
+response arrives. The game never receives the Jev prompt or answer.
+
+Use `TYPESAFE_API_KEY` for direct local calls. Hosted player pods use
+`AWS_ENDPOINT_URL_BEDROCK_RUNTIME` with the `X-Coworld-Player-Slot` header.
+The canonical manifest and certification roster remain the bundled prompt
+and scripted players; seat Jev separately for mixed episodes.
 
 ## `PLAYER_PROMPT` -- a prompt policy
 

@@ -9,12 +9,13 @@
 # and copies /workspace/replay-viewer/dist out as the bundle.
 #
 # Stage 2 is the runtime and the DEFAULT target: python:3.12-slim +
-# `pip install .`, plus the two shims tools/ci/docker_smoke.sh drives
+# `pip install .`, plus the shims tools/ci/docker_smoke.sh drives
 # unmodified. It does NOT depend on the wasm stage -- the replay is a static
 # bundle served by the platform, never a route on this container, so the game
 # image never carries the viewer and `docker build .` never pays for emsdk:
 #   /bin/collab-cooking          the game server
 #   /bin/collab-cooking-player   the bundled player (PLAYER_PROMPT / PLAYER_SCRIPTED)
+#   /bin/collab-cooking-jev-player   optional external Jev player
 #
 # Build: docker build --platform=linux/amd64 -t coworld-collab-cooking:latest .
 
@@ -88,13 +89,14 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
 RUN pip install --no-cache-dir .
 
-# The shims tools/ci/docker_smoke.sh and the manifest runnables invoke. Two
-# lines each, so `/bin/<slug>` and `/bin/<slug>-player` work unmodified.
+# The shims tools/ci/docker_smoke.sh and the manifest runnables invoke.
 RUN printf '#!/bin/sh\nexec python -m collab_cooking.coworld.server "$@"\n' > /bin/collab-cooking && \
     chmod +x /bin/collab-cooking && \
     printf '#!/bin/sh\nexec python -m collab_cooking.coworld.player "$@"\n' > /bin/collab-cooking-player && \
     chmod +x /bin/collab-cooking-player && \
-    python -c "import collab_cooking.coworld.server, collab_cooking.coworld.player"
+    printf '#!/bin/sh\nexec python -m collab_cooking.coworld.jev_player "$@"\n' > /bin/collab-cooking-jev-player && \
+    chmod +x /bin/collab-cooking-jev-player && \
+    python -c "import collab_cooking.coworld.server, collab_cooking.coworld.player, collab_cooking.coworld.jev_player"
 
 EXPOSE 8080
 CMD ["/bin/collab-cooking"]

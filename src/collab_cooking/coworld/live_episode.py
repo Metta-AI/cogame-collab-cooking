@@ -49,7 +49,7 @@ from collab_cooking.coworld.llm import (
     build_system_prompt,
     build_user_message,
 )
-from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, PROMPT_RUNES, POLICY_NAME_RUNES, truncate_runes
+from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, POLICY_NAME_RUNES, PROMPT_RUNES, truncate_runes
 from collab_cooking.game.game import (
     CHOP_MEAT_PROGRESS,
     CHOP_VEG_PROGRESS,
@@ -142,7 +142,9 @@ class Seat:
 
     @property
     def seat_kind(self) -> str:
-        return "prompt" if self.kind == "prompt" else f"scripted:{self.baseline}"
+        if self.kind == "scripted":
+            return f"scripted:{self.baseline}"
+        return self.kind
 
 
 @dataclass
@@ -344,7 +346,7 @@ class LiveMettaGridEpisode:
             "alias": seat.alias,
             "name": seat.name,
             "kind": seat.kind,
-            "baseline": "" if seat.kind == "prompt" else seat.baseline,
+            "baseline": seat.baseline if seat.kind == "scripted" else "",
             "color": seat.slot,
             "disconnected": not seat.ever_connected,
         }
@@ -400,6 +402,9 @@ class LiveMettaGridEpisode:
         if kind == "prompt":
             seat.kind = "prompt"
             seat.prompt = truncate_runes(message.prompt, PROMPT_RUNES)
+            return
+        if kind == "external":
+            seat.kind = "external"
             return
         seat.kind = "scripted"
         baseline = (message.baseline or "").strip().lower()
