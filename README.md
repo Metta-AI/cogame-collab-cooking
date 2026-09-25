@@ -70,7 +70,7 @@ names exist spectator-side only.
 
 ## Repo
 
-Numeric Metta RL and PufferLib training through the ordinary player action
+Metta's native PufferLib training through the ordinary player action
 protocol is documented in [TRAINING.md](TRAINING.md).
 
 ```

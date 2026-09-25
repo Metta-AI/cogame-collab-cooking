@@ -30,8 +30,8 @@ From a Metta checkout, set the GameBridge command to this repository's
 `.venv/bin/python` and `tools/training_bridge.py`, plus `--variant` and a
 manifest variant ID. The numeric codec uses `observation_size=1510`,
 `action_sizes=[5]`, `players=4`, and `max_decisions>=3600` with Metta's
-`recipes.external.coworld` or `recipes.external.coworld_metta_rl` recipe.
-Keep the game package and manifest available to the bridge subprocess.
+`recipes.external.coworld` recipe. Keep the game package and manifest available
+to the bridge subprocess. Native Puffer training requires CUDA.
 
 The local verification command is:
 
