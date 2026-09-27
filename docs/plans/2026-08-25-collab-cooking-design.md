@@ -11,8 +11,8 @@ player protocol also accepts `kind: "external"` for policies that decide
 through its existing seat-local observation and named action messages. An
 external seat receives no game-side plan or model call. Results and replay
 record its `external` kind, and cross-play counts it when seated with a
-scripted policy. The optional Jev player ranks reachable shift jobs in its
-own process, then uses the existing kitchen brain to emit normal tick actions.
+scripted policy. External players emit normal tick actions from their own
+policy process.
 The canonical prompt/scripted roster is unchanged.
 
 **Starter: `Metta-AI/coworld-overcogged`** (not mounted; fetched read-only with
