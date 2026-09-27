@@ -447,7 +447,8 @@ class LiveMettaGridEpisode:
             self._update_prompt_memory()
             self._plan_boundary(step)  # 7
             await self._deliver_plans()  # 8
-            await self._send_observations()  # 9
+            if self.sim.current_step < self.config.max_steps and not self.sim.is_done():
+                await self._send_observations()  # 9
             elapsed = time.monotonic() - tick_started
             if elapsed < self.step_seconds:
                 await asyncio.sleep(self.step_seconds - elapsed)
