@@ -216,6 +216,7 @@ def test_the_certification_fixture_settles_well_inside_the_certify_timeout(tmp_p
 def test_every_player_saw_the_final_frame(tmp_path: Path) -> None:
     out = full_episode(tmp_path, max_steps=60)
     for socket in out["sockets"]:
+        assert [step for step, _ in socket.actions] == list(range(60))
         assert socket.final is not None
         assert socket.final["reason"] == "complete"
         assert socket.final["done"] is True
