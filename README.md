@@ -46,11 +46,6 @@ The same image also ships four scripted baselines, selected with
 `PLAYER_SCRIPTED=brigade|runner|passer|courier`. Every prompt seat falls back to `brigade` when a
 plan turn produces nothing usable, so an episode always finishes.
 
-The optional Jev entrypoint, `/bin/collab-cooking-jev-player`,
-uses the existing player observation and action messages. It ranks reachable
-shift jobs in the player process while the kitchen brain keeps moving each
-tick. See [policies](docs/policies.md) for the local and hosted model routes.
-
 ## Scoring
 
 ```

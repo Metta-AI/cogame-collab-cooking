@@ -15,7 +15,6 @@
 # image never carries the viewer and `docker build .` never pays for emsdk:
 #   /bin/collab-cooking          the game server
 #   /bin/collab-cooking-player   the bundled player (PLAYER_PROMPT / PLAYER_SCRIPTED)
-#   /bin/collab-cooking-jev-player   optional external Jev player
 #
 # Build: docker build --platform=linux/amd64 -t coworld-collab-cooking:latest .
 
@@ -94,9 +93,7 @@ RUN printf '#!/bin/sh\nexec python -m collab_cooking.coworld.server "$@"\n' > /b
     chmod +x /bin/collab-cooking && \
     printf '#!/bin/sh\nexec python -m collab_cooking.coworld.player "$@"\n' > /bin/collab-cooking-player && \
     chmod +x /bin/collab-cooking-player && \
-    printf '#!/bin/sh\nexec python -m collab_cooking.coworld.jev_player "$@"\n' > /bin/collab-cooking-jev-player && \
-    chmod +x /bin/collab-cooking-jev-player && \
-    python -c "import collab_cooking.coworld.server, collab_cooking.coworld.player, collab_cooking.coworld.jev_player"
+    python -c "import collab_cooking.coworld.server, collab_cooking.coworld.player"
 
 EXPOSE 8080
 CMD ["/bin/collab-cooking"]

@@ -19,7 +19,7 @@ The bridge reads `reset`, `encode`, `teacher`, and `step` JSON lines on stdin.
 values and five unmasked action objects. Values contain a seat one-hot vector,
 tick and horizon, public scores, and the 500 observation triples sent to that
 seat by the game. A typed candidate question exposes the same five actions
-for optional Jev choice decisions and includes the player-visible feature
+for external choice policies and includes the player-visible feature
 table. The teacher is the bundled `KitchenBrain` player with the
 normal brigade, brigade, passer, and courier roster. It sees only its own
 player observation. A terminal response returns the game's team-dish score
@@ -44,5 +44,5 @@ accepted teacher actions each. A full `DecisionEnvironment` episode also
 finished with 1,510 values, five actions, and teacher targets. These checks
 verify the training protocol and game score. They do not measure a trained
 policy's quality. This bridge trains per-tick numeric actions. The hosted
-prompt-plan and Jev policies choose shift jobs while their ordinary players
+prompt-plan policies choose shift jobs while their ordinary players
 submit per-tick actions through the same seat observation/action protocol.
