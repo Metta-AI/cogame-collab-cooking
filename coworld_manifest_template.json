@@ -22,9 +22,7 @@
       "run": [
         "/bin/collab-cooking"
       ],
-      "env": {
-        "ANTHROPIC_API_KEY_URI": "secret://coworld/collab_cooking/anthropic_api_key"
-      }
+      "env": {}
     },
     "config_schema": {
       "type": "object",

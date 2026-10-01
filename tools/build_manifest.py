@@ -307,13 +307,7 @@ def manifest() -> dict:
                 "type": "game",
                 "image": IMAGE,
                 "run": ["/bin/collab-cooking"],
-                "env": {
-                    # The namespace is game.name, NOT the slug -- they differ here
-                    # (collab_cooking vs collab-cooking). Without this the hosted
-                    # game container never receives the secret and every league
-                    # episode silently plays scripted.
-                    "ANTHROPIC_API_KEY_URI": f"secret://coworld/{GAME_NAME}/anthropic_api_key"
-                },
+                "env": {},
             },
             "config_schema": config_schema(),
             "results_schema": results_schema(),

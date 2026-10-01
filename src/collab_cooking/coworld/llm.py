@@ -1,24 +1,8 @@
-"""Game-side LLM transport: one parallel batch per plan turn.
+"""Game-owned inference batches use the native Coworld LLM sidecar.
 
-A port of `cogame-factorio`'s `players/llm_player.py`, moved server-side. The
-transport ladder is kept as it is there:
-
-1. ``AWS_ENDPOINT_URL_BEDROCK_RUNTIME`` / ``AWS_BEARER_TOKEN_BEDROCK`` present
-   -> the minimal Bedrock ``InvokeModel`` HTTP client;
-2. else ``ANTHROPIC_API_KEY``;
-3. else read ``ANTHROPIC_API_KEY_URI`` (the ``secret://`` URI the platform
-   mounts) and use that;
-4. else **disabled** -- zero network calls for the whole episode.
-
-The LLM lives in the game container, not the player container, because "all
-seats' calls go out as ONE parallel batch per turn" is satisfiable only by the
-party that owns the turn boundary, and because retry-once-then-fall-back must
-be enforced by that same party or a hung player pod becomes a silently passing
-seat.
-
-Nothing here blocks the tick loop: `LlmPlanner.start_turn` submits the whole
-batch to a thread pool and returns; the loop polls `PlanBatch.poll()` and
-delivers whatever landed.
+Hosted requests prefer COWORLD_LLM_ENDPOINT, carry the requesting seat, and
+use canonical OpenRouter models. Local play can use provider credentials.
+The game owns parallel dispatch, retries, and its scripted fallback.
 """
 
 from __future__ import annotations
@@ -146,7 +130,7 @@ class _Transport:
         self.endpoint = endpoint.rstrip("/")
         self.bedrock_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
 
-    def complete(self, system: str, user: str, max_tokens: int) -> str:
+    def complete(self, system: str, user: str, max_tokens: int, slot: int) -> str:
         if self.kind == "bedrock":
             url = f"{self.endpoint}/model/{self.model}/invoke"
             # `output_config.effort` is never sent: Haiku 4.5 rejects it.
@@ -160,7 +144,8 @@ class _Transport:
             if self.bedrock_token:
                 headers["authorization"] = f"Bearer {self.bedrock_token}"
         else:
-            url = ANTHROPIC_MESSAGES_URL
+            url = (f"{os.environ['COWORLD_LLM_ENDPOINT'].rstrip('/')}/v1/messages"
+                   if self.kind == "sidecar" else ANTHROPIC_MESSAGES_URL)
             body = {
                 "model": self.model,
                 "max_tokens": max_tokens,
@@ -173,6 +158,8 @@ class _Transport:
                 "anthropic-version": ANTHROPIC_VERSION,
                 "x-api-key": self.api_key,
             }
+        if self.kind == "sidecar":
+            headers["X-Coworld-Player-Slot"] = str(slot)
         request = urllib.request.Request(  # noqa: S310 - fixed https endpoints
             url, data=json.dumps(body).encode("utf-8"), method="POST", headers=headers
         )
@@ -196,6 +183,8 @@ class _Transport:
 
 def build_transport(model: str, timeout: float) -> _Transport | None:
     """The ladder. Returns None when there are no credentials at all."""
+    if os.environ.get("COWORLD_LLM_ENDPOINT"):
+        return _Transport("sidecar", os.environ.get("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5"), timeout)
     if os.environ.get("AWS_ENDPOINT_URL_BEDROCK_RUNTIME") or os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
         return _Transport("bedrock", BEDROCK_MODEL, timeout)
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
@@ -310,7 +299,7 @@ class LlmPlanner:
             with self._requests_lock:
                 self._requests += 1
             try:
-                text = self._transport.complete(request.system, user, self.max_output_tokens)
+                text = self._transport.complete(request.system, user, self.max_output_tokens, request.slot)
             except Exception as exc:  # noqa: BLE001 - classified, never escapes
                 message = f"{exc}"
                 cause = "timeout" if "timed out" in message.lower() or "timeout" in message.lower() else "transport"
