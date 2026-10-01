@@ -158,14 +158,12 @@ def test_the_manifest_carries_only_keys_the_coworld_schema_admits() -> None:
     assert game["owner"], "game.owner is required"
 
 
-def test_the_runnable_carries_the_secret_uri_in_the_game_name_namespace() -> None:
+def test_the_runnable_uses_hosted_inference_without_provider_secrets() -> None:
     runnable = MANIFEST["game"]["runnable"]
     assert runnable["type"] == "game"
     assert runnable["image"] == IMAGE
     assert runnable["run"] == ["/bin/collab-cooking"]
-    assert runnable["env"]["ANTHROPIC_API_KEY_URI"] == (
-        f"secret://coworld/{GAME_NAME}/anthropic_api_key"
-    )
+    assert "ANTHROPIC_API_KEY_URI" not in runnable["env"]
     # The namespace is game.name, not the slug -- they differ here.
     assert MANIFEST["game"]["name"] == GAME_NAME
     assert GAME_NAME != "collab-cooking"
@@ -223,17 +221,10 @@ def test_the_manifest_loader_check_runs_the_version_the_release_pins() -> None:
     )
 
 
-def test_the_release_puts_the_secret_in_the_game_name_namespace() -> None:
-    """The runnable reads `secret://coworld/collab_cooking/...`, so the
-    `secret put` step has to target `game.name` and not the slug -- they differ
-    by a hyphen here, and a secret under the wrong namespace resolves to
-    nothing while every league episode still 'succeeds', scripted."""
-    release = (ROOT / ".github" / "workflows" / "coworld-release.yml").read_text(encoding="utf-8")
-    step = release.split("- name: Put the Coworld secret", 1)[1].split("\n      - name:", 1)[0]
-    assert "coworld secret put" in step
-    assert '"$SLUG"' not in step, "the secret namespace is game.name, not the slug"
-    assert 'manifest["game"]["name"]' in step, "read the namespace out of the manifest"
-    assert 'coworld secret put \\\n            "$game_name"' in step
+def test_release_needs_no_provider_secret() -> None:
+    release = (ROOT / ".github/workflows/coworld-release.yml").read_text()
+    assert "coworld secret put" not in release
+    assert "secrets.ANTHROPIC_API_KEY" not in release
 
 
 def test_the_hooks_ci_needs_are_executable() -> None:

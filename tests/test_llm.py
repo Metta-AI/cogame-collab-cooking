@@ -42,7 +42,7 @@ class StubTransport:
         self.delay = delay
         self._lock = threading.Lock()
 
-    def complete(self, system: str, user: str, max_tokens: int) -> str:
+    def complete(self, system: str, user: str, max_tokens: int, slot: int) -> str:
         if self.barrier is not None:
             # Every seat must be in flight at the same time or this times out.
             self.barrier.wait(timeout=5)
@@ -264,3 +264,47 @@ def test_an_enormous_view_is_still_capped() -> None:
         "last_order": "z" * 500, "radio": [("Cog-B", "w" * 500)] * 9, "note": "q" * 900,
     }
     assert len(build_user_message(view)) <= 2000
+
+
+def test_hosted_transport_posts_native_messages_with_seat_attribution(monkeypatch):
+    import json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    received = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            received.append((self.path, self.headers["X-Coworld-Player-Slot"], body))
+            response = json.dumps({"content": [{"type": "text", "text": "ok"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv("COWORLD_LLM_ENDPOINT", f"http://127.0.0.1:{server.server_port}/")
+    monkeypatch.setenv("COWORLD_LLM_MODEL", "anthropic/claude-sonnet-4.6")
+    monkeypatch.setenv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME", "http://retired.invalid")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "local-key-must-not-be-used")
+    try:
+        from collab_cooking.coworld.llm import build_transport
+        transport = build_transport("local-model", 5)
+        for slot in (0, 1):
+            assert transport.complete("rules", "private view", 64, slot) == "ok"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    assert [slot for _, slot, _ in received] == ["0", "1"]
+    for path, _, body in received:
+        assert path == "/v1/messages"
+        assert body["model"] == "anthropic/claude-sonnet-4.6"
+        assert "anthropic_version" not in body
