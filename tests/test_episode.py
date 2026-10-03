@@ -221,3 +221,47 @@ def test_every_player_saw_the_final_frame(tmp_path: Path) -> None:
         assert socket.final["reason"] == "complete"
         assert socket.final["done"] is True
         assert len(socket.final["aliases"]) == 4
+
+
+def test_action_fallbacks_distinguish_policy_errors_from_missing_actions(monkeypatch, tmp_path: Path) -> None:
+    from tests.harness import FakeSocket
+
+    ordinary_send = FakeSocket.send_json
+
+    async def controlled_send(socket: FakeSocket, message: dict) -> None:
+        if message["type"] != "observation":
+            await ordinary_send(socket, message)
+            return
+        slot = socket.seat.slot
+        if slot == 3:
+            socket.episode.disconnect_player(socket.connection_id)
+            return
+        await socket.episode.handle_player_message(
+            socket.connection_id,
+            {
+                "type": "action",
+                "action_name": "not-a-legal-action" if slot == 1 else "noop",
+                "request_id": "step--1" if slot == 2 else f"step-{message['step']}",
+            },
+        )
+
+    monkeypatch.setattr(FakeSocket, "send_json", controlled_send)
+    out = run_episode(
+        fast_cert_config(max_steps=6, step_seconds=0, policy_action_timeout_seconds=0, shutdown_grace_seconds=0),
+        [scripted_registration() for _ in range(4)],
+        tmp_path,
+    )
+    assert out["results"]["reason"] == "complete"
+    counts = out["results"]["action_fallbacks"]
+    assert counts == [
+        {"invalid_action": 0, "deadline": 0, "disconnected": 0, "malformed_frame": 0},
+        {"invalid_action": 6, "deadline": 0, "disconnected": 0, "malformed_frame": 0},
+        {"invalid_action": 0, "deadline": 6, "disconnected": 0, "malformed_frame": 0},
+        {"invalid_action": 0, "deadline": 0, "disconnected": 6, "malformed_frame": 0},
+    ]
+    replay = json.loads(out["replay_bytes"])
+    events = [
+        event for tick in replay["ticks"] if "ev" in tick for event in tick["ev"] if event["ev"] == "action_fallback"
+    ]
+    assert len(events) == 18
+    assert {event["cause"] for event in events} == {"invalid_action", "deadline", "disconnected"}

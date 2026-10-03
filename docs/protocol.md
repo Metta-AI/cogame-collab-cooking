@@ -72,3 +72,20 @@ An action whose `request_id` is not this step is treated as `noop`.
 After which the player exits 0. The player's receive loop catches every connection error and
 still exits 0: the game's own shutdown can outrun the flushed final frame, and a non-zero player
 exit fails the episode.
+
+## Action failure attribution
+
+Final results include one `action_fallbacks` object per seat. Each applied tick
+fallback increments exactly one of `invalid_action`, `deadline`, or `disconnected`.
+A legal `noop` is a valid action and increments none. Unknown action names,
+out-of-range indices, and actions without a name or index count as invalid when
+submitted for the expected step. An action with a stale request ID counts as a
+missed deadline. A seat with no active connection counts as disconnected.
+Each applied fallback also records an `action_fallback` replay event with slot,
+step, and cause. These counters are independent of game-side LLM plan fallbacks.
+
+`malformed_frame` counts rejected protocol frames separately. A rejected frame
+can also leave that step without a valid action; do not sum this counter with
+applied tick fallback counts. These receipts distinguish player action failures
+from game infrastructure failures; they do not identify why a player missed its
+deadline.

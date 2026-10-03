@@ -93,6 +93,7 @@ class SubmittedAction:
     action_index: int
     action_name: str
     connection_id: str
+    valid: bool
     policy_infos: dict[str, Any] = field(default_factory=dict)
     request_id: str | None = None
 
@@ -125,6 +126,9 @@ class Seat:
     connected: bool = False
     ever_connected: bool = False
     fallbacks: int = 0
+    action_fallbacks: dict[str, int] = field(
+        default_factory=lambda: {"invalid_action": 0, "deadline": 0, "disconnected": 0, "malformed_frame": 0}
+    )
     blocked: int = 0
     handoffs: int = 0
     say: str = ""
@@ -241,6 +245,7 @@ class LiveMettaGridEpisode:
             action_index=self.noop_action_index,
             action_name="noop",
             connection_id="system",
+            valid=True,
         )
         self.latest_policy_actions = [self._noop_action for _ in self.tokens]
         self.latest_action_indices = [self.noop_action_index for _ in self.tokens]
@@ -382,6 +387,7 @@ class LiveMettaGridEpisode:
         try:
             message = PlayerClientMessage.model_validate(raw_message)
         except Exception:  # noqa: BLE001 - a malformed frame is never a disconnect
+            self.seats[connection.slot].action_fallbacks["malformed_frame"] += 1
             return
         seat = self.seats[connection.slot]
         if message.type == "register":
@@ -507,7 +513,18 @@ class LiveMettaGridEpisode:
         expected = f"step-{step}"
         for slot in range(len(self.tokens)):
             action = self.latest_policy_actions[slot]
-            if action.request_id != expected or not self.connections_by_slot[slot]:
+            cause = (
+                "disconnected"
+                if not self.connections_by_slot[slot]
+                else "deadline"
+                if action.request_id != expected
+                else "invalid_action"
+                if not action.valid
+                else ""
+            )
+            if cause:
+                self.seats[slot].action_fallbacks[cause] += 1
+                self._push_event({"ev": "action_fallback", "slot": slot, "step": step, "cause": cause})
                 action = self._noop_action
             self.latest_action_indices[slot] = action.action_index
             self.applied_actions[slot] = action.action_name
@@ -951,7 +968,7 @@ class LiveMettaGridEpisode:
     # -- settle -------------------------------------------------------------
     def results(self) -> dict[str, Any]:
         delivered = self.delivered() if self.reason != "no_players" else [0] * len(self.tokens)
-        return results_mod.build_results(
+        result = results_mod.build_results(
             reason=self.reason,
             layout=self.config.layout,
             steps=int(self.sim.current_step),
@@ -969,6 +986,8 @@ class LiveMettaGridEpisode:
             fallbacks=[seat.fallbacks for seat in self.seats],
             llm_requests=self.planner.requests if self.planner else 0,
         )
+        result["action_fallbacks"] = [dict(seat.action_fallbacks) for seat in self.seats]
+        return result
 
     async def _settle(self, reason: str) -> None:
         self.reason = reason
@@ -1047,6 +1066,11 @@ class LiveMettaGridEpisode:
             action_index=index,
             action_name=self.action_names[index],
             connection_id=connection_id,
+            valid=(
+                message.action_name in self.action_names
+                if message.action_name is not None
+                else message.action_index is not None and 0 <= message.action_index < len(self.action_names)
+            ),
             policy_infos=message.policy_infos,
             request_id=message.request_id,
         )
