@@ -67,3 +67,49 @@ async def test_source_private_teacher_reaches_actual_cpp_and_common_canonical_pr
     with pytest.raises(ValueError, match="scripted teacher differs"):
         finalize(forged, tmp_path / "forged.complete.jsonl")
     assert not (tmp_path / "forged.complete.jsonl").exists()
+
+
+def test_actual_collector_cli_hydrates_a_valid_source_version_and_preserves_template(tmp_path):
+    import hashlib
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from coworld.decision_trajectory import CompleteEpisode
+
+    root = Path(__file__).resolve().parents[1]
+    template = json.loads((root / "coworld_manifest_template.json").read_bytes())
+    variant = template["variants"][0]
+    variant["game_config"]["max_steps"] = 12  # Explicit short protocol diagnostic only.
+    manifest = tmp_path / "author-template.json"
+    manifest.write_text(json.dumps(template))
+    before = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    output = tmp_path / "private-output"
+    subprocess.run(
+        [
+            sys.executable,
+            str(root / "tools/collect_teachers.py"),
+            "--manifest",
+            str(manifest),
+            "--variant",
+            variant["id"],
+            "--seed",
+            "1",
+            "--source-revision",
+            "a" * 40,
+            "--output",
+            str(output),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert hashlib.sha256(manifest.read_bytes()).hexdigest() == before
+    assert "version" not in json.loads(manifest.read_bytes())["game"]
+    episode = CompleteEpisode.model_validate_json((output / "trajectories.jsonl").read_bytes())
+    assert episode.episode.game_version == "0.1.0+g" + "a" * 40
+    assert episode.episode.source_revision == "a" * 40
+    assert episode.episode.outcome["runtime_configuration"]["max_steps"] == 12
+    assert episode.episode.outcome["evidence_profile"] == "scripted_teacher_logical_clock_v1"
+    assert all(not attempt.is_model_call for decision in episode.decisions for attempt in decision.attempts)

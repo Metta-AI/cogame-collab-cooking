@@ -61,7 +61,7 @@ def main() -> None:
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    version = f"source-{args.source_revision}"
+    version = f"0.1.0+g{args.source_revision}"
     raw = json.loads(args.manifest.read_bytes())
     raw["game"]["version"] = version  # Runtime copy; the authoritative template stays versionless.
     manifest = CoworldManifest.model_validate(raw)
