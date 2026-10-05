@@ -7,3 +7,12 @@ nimcache/
 dom-text-smoke.json
 dom-text-smoke.png
 .pytest_cache/
+
+# Private source/native training evidence never enters images or public replays.
+*.evidence.partial.jsonl
+*.trajectory.jsonl
+private-training/
+*.complete.jsonl
+*.candidate.jsonl
+*.finalizer.stderr
+trajectories.jsonl

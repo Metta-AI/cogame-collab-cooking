@@ -22,7 +22,15 @@ def request(process: subprocess.Popen[str], message: dict) -> dict:
 
 def play(variant: str, steps: int) -> dict:
     with subprocess.Popen(
-        [sys.executable, str(ROOT / "tools/training_bridge.py"), "--variant", variant, "--steps", str(steps)],
+        [
+            sys.executable,
+            str(ROOT / "tools/training_bridge.py"),
+            "--research-physical",
+            "--variant",
+            variant,
+            "--steps",
+            str(steps),
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,

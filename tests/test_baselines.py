@@ -20,9 +20,9 @@ import pytest
 from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.simulator import Simulator
 
-from collab_cooking.agent.brain.policy import BASELINE_NAMES, KitchenBrain
+from collab_cooking.agent.brain.policy import BASELINE_NAMES, KitchenBrain, PlanDirective
+from collab_cooking.coworld.observation import decode_observation
 from collab_cooking.coworld.plans import TALK_RUNES, PlanError, parse_plan
-from collab_cooking.coworld.player import Seat, decode_observation
 from collab_cooking.kitchens.layouts import LAYOUT_NAMES, reachable_stations
 from collab_cooking.missions.kitchen import make_kitchen_mission
 
@@ -34,18 +34,10 @@ def wire_seats(layout: str, baselines: list[str], max_steps: int):
     env = make_kitchen_mission(layout, max_steps)
     sim = Simulator().new_simulation(env, seed=20260825)
     pei = PolicyEnvInterface.from_mg_cfg(sim.config)
-    config = {
-        "type": "player_config",
-        "slot": 0,
-        "alias": "Cog-A",
-        "layout": layout,
-        "policy_env": json.loads(json.dumps(pei.model_dump(mode="json"))),
-    }
     seats = []
     for slot, baseline in enumerate(baselines):
-        seat = Seat()
-        seat.configure({**config, "slot": slot, "alias": ALIASES[slot]}, baseline)
-        seats.append(seat)
+        brain = KitchenBrain(pei, slot, layout=layout, baseline=baseline)
+        seats.append((brain, brain.initial_agent_state()))
     return sim, pei, seats
 
 
@@ -63,7 +55,11 @@ def test_baseline_emits_exactly_one_legal_action_per_tick(baseline: str, layout:
     for step in range(TICKS):
         emitted = []
         for slot, seat in enumerate(seats):
-            action, talk = seat.act(raw_observation(sim, slot))
+            brain, state = seat
+            proposed, state = brain.step_with_state(decode_observation(_pei, raw_observation(sim, slot), slot), state)
+            seats[slot] = (brain, state)
+            action = proposed.name
+            talk = proposed.talk or state.current_task
             assert action in action_names, f"{baseline}/{layout} emitted {action!r}"
             assert len(talk) <= TALK_RUNES
             talk.encode("utf-8").decode("utf-8")
@@ -83,8 +79,7 @@ def test_baseline_emits_exactly_one_legal_action_per_tick(baseline: str, layout:
             # left to do there may legitimately settle.
             if layout != "forced":
                 assert step - last_move_tick[slot] <= 60, (
-                    f"{baseline}/{layout} seat {slot} sat on one tile for "
-                    f"{step - last_move_tick[slot]} ticks"
+                    f"{baseline}/{layout} seat {slot} sat on one tile for {step - last_move_tick[slot]} ticks"
                 )
 
 
@@ -113,13 +108,20 @@ def random_plan(rng: random.Random) -> object:
     if kind == 6:
         return json.dumps({"station": "chop", "recipe": 17, "zone": None, "handoff": []})
     if kind == 7:
-        return "here you go! " + json.dumps(
-            {"station": "sink", "say": "\u00e9" * 400, "note": "\u2603" * 900}
-        ) + " hope that helps"
+        return (
+            "here you go! "
+            + json.dumps({"station": "sink", "say": "\u00e9" * 400, "note": "\u2603" * 900})
+            + " hope that helps"
+        )
     if kind == 8:
         return json.dumps(
-            {"station": rng.choice(["chop", "pot", "hold"]), "yield_to": "Cog-Z",
-             "handoff": "Cog-B", "zone": "middle", "recipe": "pizza"}
+            {
+                "station": rng.choice(["chop", "pot", "hold"]),
+                "yield_to": "Cog-Z",
+                "handoff": "Cog-B",
+                "zone": "middle",
+                "recipe": "pizza",
+            }
         )
     return json.dumps({"station": "hold", "extra": {"nested": [1, {"deep": True}]}})
 
@@ -136,25 +138,36 @@ def test_plan_fuzz_keeps_the_executor_emitting_one_legal_action() -> None:
     # puts through the executor.
     for step in range(400):
         if step % 4 == 0:
-            for slot, seat in enumerate(seats):
+            for seat in seats:
                 raw = random_plan(rng)
                 fuzzed += 1
                 try:
                     plan = parse_plan(str(raw), legal, ALIASES + ["none"])
                 except PlanError:
-                    seat.apply_plan({"station": ""})
+                    brain, state = seat
+                    brain.apply_plan(state, None)
                     continue
                 accepted += 1
                 assert len(plan.say) <= 120 and len(plan.note) <= 200
-                seat.apply_plan(
-                    {
-                        "station": plan.station, "recipe": plan.recipe, "zone": plan.zone,
-                        "handoff": plan.handoff, "yield_to": plan.yield_to,
-                        "say": plan.say, "src": "llm",
-                    }
+                brain, state = seat
+                brain.apply_plan(
+                    state,
+                    PlanDirective(
+                        turn=step // 4 + 1,
+                        station=plan.station,
+                        recipe=plan.recipe,
+                        zone=plan.zone,
+                        handoff=plan.handoff,
+                        yield_to=plan.yield_to,
+                        say=plan.say,
+                        src="llm",
+                    ),
                 )
         for slot, seat in enumerate(seats):
-            action, _talk = seat.act(raw_observation(sim, slot))
+            brain, state = seat
+            proposed, state = brain.step_with_state(decode_observation(_pei, raw_observation(sim, slot), slot), state)
+            seats[slot] = (brain, state)
+            action = proposed.name
             assert action in action_names
             sim.agent(slot).set_action(action)
         sim.step()
@@ -169,10 +182,7 @@ def test_every_baseline_name_is_selectable_and_resolves_a_role() -> None:
     each name being selectable and resolving, not about roles being
     distinct."""
     _sim, pei, _seats = wire_seats("cramped", ["brigade"] * 4, 20)
-    roles = {
-        name: KitchenBrain(pei, 3, layout="cramped", baseline=name)._role
-        for name in BASELINE_NAMES
-    }
+    roles = {name: KitchenBrain(pei, 3, layout="cramped", baseline=name)._role for name in BASELINE_NAMES}
     assert roles["brigade"] == "all_rounder"
     assert roles["runner"] == "all_rounder"
     assert roles["courier"] == "server"
@@ -186,4 +196,5 @@ def test_decode_observation_drops_empty_tokens_and_keeps_the_rest() -> None:
     raw = raw_observation(sim, 0)
     decoded = decode_observation(pei, raw, 0)
     assert len(decoded.tokens) > 0
-    assert all(token.raw_token[0] != 255 for token in decoded.tokens)
+    known = {feature.id for feature in pei.obs_features}
+    assert [token.raw_token for token in decoded.tokens] == [tuple(token) for token in raw if token[1] in known]
