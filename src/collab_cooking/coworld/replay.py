@@ -24,8 +24,6 @@ from collab_cooking.game.game import (
     CHOPPED_MEAT,
     CHOPPED_VEG,
     CLEAN_PLATE,
-    DIRTY_PLATE,
-    DISH_RESOURCE_BY_RECIPE,
     FRYER_FRIES_BURNED,
     FRYER_FRIES_COOKING,
     FRYER_FRIES_READY,
@@ -526,8 +524,7 @@ class ReplayWriter:
             "tile": TILE_PX,
             "rows": grid(self.layout),
             "stations": [
-                {"kind": kind, "x": pos[1], "y": pos[0]}
-                for kind, pos in sorted(stations(self.layout).items())
+                {"kind": kind, "x": pos[1], "y": pos[0]} for kind, pos in sorted(stations(self.layout).items())
             ],
         }
 

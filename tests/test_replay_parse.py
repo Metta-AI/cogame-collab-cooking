@@ -7,12 +7,12 @@ exactly here, which is why every recorded string is cut on rune boundaries.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
-import pytest
+import pytest_asyncio
 
-from collab_cooking.coworld.llm import LlmPlanner
 from collab_cooking.coworld.plans import FEED_RUNES, SAY_RUNES
 from collab_cooking.coworld.replay import (
     DIFF_ORDER,
@@ -27,8 +27,7 @@ from collab_cooking.game.game import (
     TICKET_FIRST_ARRIVAL,
     TICKET_INTERARRIVAL,
 )
-from tests.harness import fast_cert_config, prompt_registration, run_episode, scripted_registration
-from tests.test_llm import StubTransport
+from tests.harness import FakeSocket, build_episode, fast_cert_config, prompt_registration, scripted_registration
 
 REQUIRED_KEYS = ["format", "protocol", "config", "seed", "kitchen", "seats", "ticks", "heat", "results"]
 # A say at exactly the cap, every rune multi-byte: a byte cut anywhere in it
@@ -36,8 +35,8 @@ REQUIRED_KEYS = ["format", "protocol", "config", "seed", "kitchen", "seats", "ti
 MULTIBYTE_SAY = "\u2603\u00e9\u4e2d" * 60  # 180 runes -> truncated to 120
 
 
-@pytest.fixture(scope="module")
-def artifacts(tmp_path_factory) -> dict:
+@pytest_asyncio.fixture(scope="module")
+async def artifacts(tmp_path_factory) -> dict:
     out_dir = tmp_path_factory.mktemp("replay")
     reply = json.dumps(
         {
@@ -51,25 +50,84 @@ def artifacts(tmp_path_factory) -> dict:
         },
         ensure_ascii=False,
     )
-    planner = LlmPlanner(transport=StubTransport([reply]), max_workers=2, timeout_seconds=5)
-    out = run_episode(
+    wire = json.dumps(
+        {
+            "model": "checkpoint:replay-http-diagnostic",
+            "content": [{"type": "text", "text": reply}],
+            "usage": {"input_tokens": 11, "output_tokens": 19},
+            "stop_reason": "end_turn",
+        },
+        ensure_ascii=False,
+    ).encode()
+    handlers = set()
+
+    async def http(reader, writer):
+        handlers.add(asyncio.current_task())
+        try:
+            headers = await reader.readuntil(b"\r\n\r\n")
+            length = int(
+                next(
+                    line.split(b":", 1)[1]
+                    for line in headers.split(b"\r\n")
+                    if line.lower().startswith(b"content-length:")
+                )
+            )
+            await reader.readexactly(length)
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nConnection: close\r\n" + f"Content-Length: {len(wire)}\r\n\r\n".encode() + wire
+            )
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    server = await asyncio.start_server(http, "127.0.0.1", 0)
+    endpoint = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+    episode = build_episode(
         fast_cert_config(
-            max_steps=200, step_seconds=0.0, shutdown_grace_seconds=0.0,
-            player_connect_timeout_seconds=2, plan_interval_steps=40,
+            max_steps=200,
+            step_seconds=0.005,
+            shutdown_grace_seconds=0.0,
+            player_connect_timeout_seconds=2,
+            plan_interval_steps=40,
             min_plan_interval_seconds=0.0,
         ),
-        [
+        player_names=["collab-cooking-expo", "collab-cooking-linecook", "Baseline (1)", "Baseline (2)"],
+    )
+    results_path = Path(out_dir) / "results.json"
+    replay_path = Path(out_dir) / "replay.json"
+
+    def save(result, raw):
+        results_path.write_bytes(result)
+        replay_path.write_bytes(raw)
+
+    episode.configure_artifacts(save, generated_at="2026-10-04T00:00:00Z")
+    try:
+        registrations = [
             prompt_registration("Keep the pot busy."),
             prompt_registration("Feed the board."),
             scripted_registration("passer"),
             scripted_registration("courier"),
-        ],
-        Path(out_dir),
-        planner=planner,
-        player_names=["collab-cooking-expo", "collab-cooking-linecook", "Baseline (1)", "Baseline (2)"],
-    )
-    planner.shutdown()
-    return out
+        ]
+        sockets = []
+        for slot, registration in enumerate(registrations):
+            socket = FakeSocket(registration, endpoint)
+            socket.episode = episode
+            socket.connection_id = await episode.connect_player(slot, socket)
+            await socket.register()
+            sockets.append(socket)
+        await asyncio.wait_for(episode.run(), 15)
+        return {
+            "episode": episode,
+            "sockets": sockets,
+            "results": json.loads(results_path.read_text()),
+            "replay_bytes": replay_path.read_bytes(),
+        }
+    finally:
+        server.close()
+        await server.wait_closed()
+        if handlers:
+            await asyncio.gather(*handlers)
 
 
 def test_the_replay_bytes_are_strict_utf8_json(artifacts: dict) -> None:
@@ -90,17 +148,16 @@ def test_seats_carry_both_an_alias_and_a_real_name(artifacts: dict) -> None:
         assert seat["name"], "the real policy name is spectator-side data and must be present"
     assert sorted(seat["alias"] for seat in seats) == ["Cog-A", "Cog-B", "Cog-C", "Cog-D"]
     assert {seat["name"] for seat in seats} == {
-        "collab-cooking-expo", "collab-cooking-linecook", "Baseline (1)", "Baseline (2)"
+        "collab-cooking-expo",
+        "collab-cooking-linecook",
+        "Baseline (1)",
+        "Baseline (2)",
     }
 
 
 def test_every_event_is_inside_the_documented_vocabulary(artifacts: dict) -> None:
     document = json.loads(artifacts["replay_bytes"].decode("utf-8"))
-    seen = {
-        event["ev"]
-        for tick in document["ticks"]
-        for event in tick.get("ev", [])
-    }
+    seen = {event["ev"] for tick in document["ticks"] for event in tick.get("ev", [])}
     assert seen, "an episode with no events at all is a bug"
     assert seen <= set(EVENT_NAMES), f"undocumented events: {seen - set(EVENT_NAMES)}"
     assert "plan" in seen, "the stubbed transport must have delivered plans"
@@ -108,12 +165,7 @@ def test_every_event_is_inside_the_documented_vocabulary(artifacts: dict) -> Non
 
 def test_a_capped_multibyte_say_survives_as_valid_utf8(artifacts: dict) -> None:
     document = json.loads(artifacts["replay_bytes"].decode("utf-8"))
-    says = [
-        event["say"]
-        for tick in document["ticks"]
-        for event in tick.get("ev", [])
-        if event["ev"] == "plan"
-    ]
+    says = [event["say"] for tick in document["ticks"] for event in tick.get("ev", []) if event["ev"] == "plan"]
     assert says, "no plan carried a say"
     for say in says:
         assert len(say) == SAY_RUNES
@@ -172,11 +224,7 @@ def test_every_tick_carries_its_events_in_the_declared_order(artifacts: dict) ->
     for tick in document["ticks"]:
         derived = [rank[e["ev"]] for e in tick.get("ev", []) if e["ev"] in rank]
         assert derived == sorted(derived), f"tick {tick['t']} is out of DIFF_ORDER"
-        slots = [
-            e.get("slot")
-            for e in tick.get("ev", [])
-            if e["ev"] == "blocked" and e.get("slot") is not None
-        ]
+        slots = [e.get("slot") for e in tick.get("ev", []) if e["ev"] == "blocked" and e.get("slot") is not None]
         assert slots == sorted(slots), f"tick {tick['t']}: ties resolve by ascending slot"
         multi += len(derived) > 1
     assert multi > 5, "the fixture must carry ticks with several events"

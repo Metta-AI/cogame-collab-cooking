@@ -11,14 +11,18 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pydantic import ConfigDict, TypeAdapter
+
+from collab_cooking.coworld import lifecycle
 from collab_cooking.coworld.live_episode import EpisodeConfig, LiveMettaGridEpisode
-from collab_cooking.coworld.llm import LlmPlanner
-from collab_cooking.coworld.player import Seat as PlayerSeat
+from collab_cooking.coworld.native_container import NativeContainer
+from collab_cooking.coworld.plan_protocol import NativeProfile, PlayerConfiguration, Registration
 from collab_cooking.missions.kitchen import make_kitchen_mission
+
+REGISTRATION = TypeAdapter(Registration, config=ConfigDict(hide_input_in_errors=True))
 
 CERT_CONFIG: dict[str, Any] = {
     "num_agents": 4,
@@ -33,11 +37,11 @@ CERT_CONFIG: dict[str, Any] = {
 
 
 class FakeSocket:
-    """One player's end of the wire. Runs its brain synchronously."""
+    """Native v2 transport fixture using the actual bundled container and parser."""
 
-    def __init__(self, registration: dict[str, Any], seat: PlayerSeat) -> None:
+    def __init__(self, registration: dict[str, Any], endpoint: str) -> None:
         self.registration = registration
-        self.seat = seat
+        self.endpoint = endpoint
         self.episode: LiveMettaGridEpisode | None = None
         self.connection_id = ""
         self.closed = False
@@ -45,38 +49,42 @@ class FakeSocket:
         self.final: dict[str, Any] | None = None
         self.actions: list[tuple[int, str]] = []
         self.configured = False
+        self.configuration: PlayerConfiguration | None = None
+        self.container: NativeContainer | None = None
+
+    async def send_wire(self, raw: str) -> None:
+        assert self.episode is not None
+        frame = json.loads(raw)
+        if frame["type"] == "action":
+            pending = self.episode.channels[frame["slot"]].executor.pending
+            assert pending is not None
+            self.actions.append((pending.step, frame["action_name"]))
+        await self.episode.handle_player_message(self.connection_id, frame)
+
+    async def register(self) -> None:
+        assert self.configuration is not None
+        frozen = REGISTRATION.validate_python({**self.registration, "slot": self.configuration.slot})
+        self.container = NativeContainer(self.configuration, frozen, self.endpoint, self.send_wire)
+        await self.container.send(frozen)
 
     async def send_json(self, data: Any) -> None:
-        if self.closed or self.episode is None:
-            return
-        # Round-tripping through JSON is the point: it proves the wire frames
-        # are serialisable and that nothing leaks a non-JSON object.
+        assert not self.closed
         message = json.loads(json.dumps(data, ensure_ascii=False))
-        kind = message.get("type")
-        if kind == "player_config":
-            baseline = self.registration.get("baseline", "brigade")
-            self.seat.configure(message, baseline)
+        if message["type"] == "player_config":
+            self.configuration = PlayerConfiguration.model_validate(message)
             self.configured = True
-        elif kind == "observation":
-            step = int(message["step"])
-            action_name, task = self.seat.observe(message)
-            self.actions.append((step, action_name))
-            await self.episode.handle_player_message(
-                self.connection_id,
-                {
-                    "type": "action",
-                    "action_name": action_name,
-                    "policy_infos": {"policy_name": self.seat.alias, "task": task},
-                    "request_id": f"step-{step}",
-                },
-            )
-        elif kind == "plan":
-            self.plans.append(message)
-            self.seat.apply_plan(message)
-        elif kind == "final":
+        elif message["type"] == "final":
             self.final = message
+        else:
+            assert self.container is not None
+            if message["type"] == "plan_installed":
+                self.plans.append(message)
+            await self.container.receive(json.dumps(message, ensure_ascii=False))
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        assert self.container is not None
+        if not await self.container.close_owner(lifecycle.cleanup_deadline()):
+            raise lifecycle.OwnershipUnsettled("fixture player did not join")
         self.closed = True
 
 
@@ -85,13 +93,12 @@ def scripted_registration(baseline: str = "brigade") -> dict[str, Any]:
 
 
 def prompt_registration(prompt: str = "Serve as many dishes as you can.") -> dict[str, Any]:
-    return {"type": "register", "kind": "prompt", "prompt": prompt}
+    return {"type": "register", "kind": "native", "prompt": prompt, "profile": NativeProfile().model_dump()}
 
 
 def build_episode(
     raw_config: dict[str, Any],
     *,
-    planner: LlmPlanner | None = None,
     player_names: list[str] | None = None,
     process_start: float | None = None,
 ) -> LiveMettaGridEpisode:
@@ -104,7 +111,6 @@ def build_episode(
         config=config,
         tokens=tokens,
         player_names=player_names or [f"policy-{i}" for i in range(config.num_agents)],
-        planner=planner,
         process_start=process_start,
     )
 
@@ -114,13 +120,12 @@ def run_episode(
     registrations: list[dict[str, Any]],
     out_dir: Path,
     *,
-    planner: LlmPlanner | None = None,
     player_names: list[str] | None = None,
     connect: bool = True,
     process_start: float | None = None,
     paused: bool = False,
     run_timeout: float | None = None,
-    seat_factories: list[Callable[[], PlayerSeat]] | None = None,
+    endpoint: str = "http://127.0.0.1:1",
 ) -> dict[str, Any]:
     """Run one episode to settlement and write both artifacts into `out_dir`.
 
@@ -133,28 +138,28 @@ def run_episode(
     replay_path = out_dir / "replay.json"
 
     async def go() -> dict[str, Any]:
-        episode = build_episode(
-            raw_config, planner=planner, player_names=player_names, process_start=process_start
-        )
+        episode = build_episode(raw_config, player_names=player_names, process_start=process_start)
         episode.configure_artifacts(
             lambda results, replay: (
-                results_path.write_bytes(results),
-                replay_path.write_bytes(replay),
-            )
-            and None,
+                (
+                    results_path.write_bytes(results),
+                    replay_path.write_bytes(replay),
+                )
+                and None
+            ),
             generated_at="2026-08-25T12:00:00Z",
         )
         sockets: list[FakeSocket] = []
         if connect:
             for slot, registration in enumerate(registrations):
-                socket = FakeSocket(registration, seat_factories[slot]() if seat_factories else PlayerSeat())
+                socket = FakeSocket(registration, endpoint)
                 socket.episode = episode
                 sockets.append(socket)
                 socket.connection_id = await episode.connect_player(slot, socket)
                 # The real player sends `register` immediately after the
                 # `player_config` frame lands; here the connection id only
                 # exists once connect_player returns.
-                await episode.handle_player_message(socket.connection_id, registration)
+                await socket.register()
         episode.paused = paused
         if run_timeout is None:
             await episode.run()

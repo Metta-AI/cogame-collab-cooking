@@ -25,7 +25,7 @@ import json
 import pathlib
 import sys
 
-from coworld.bundle import _load_template_manifest
+from coworld.manifest import validate_upload_manifest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 IMAGE_PLACEHOLDER = "{{COLLAB_COOKING_IMAGE}}"
@@ -42,7 +42,13 @@ def main() -> None:
         )
     # The same call `coworld build` makes, with the compose service's image
     # placeholder resolved the way `_compose_image_placeholders` resolves it.
-    manifest = _load_template_manifest(raw, "0.1.0", {IMAGE_PLACEHOLDER: "coworld-collab-cooking:latest"})
+    raw["game"]["version"] = "0.1.0"
+    for section in ("player", "commissioner", "grader", "diagnoser", "optimizer"):
+        for runnable in raw.get(section, []):
+            if runnable.get("image") == IMAGE_PLACEHOLDER:
+                runnable["image"] = "coworld-collab-cooking:latest"
+    raw["game"]["runnable"]["image"] = "coworld-collab-cooking:latest"
+    manifest = validate_upload_manifest(raw).runtime_manifest
 
     viewer = manifest.game.replay_viewer
     if viewer is None or viewer.bundle != "static-replay-viewer":

@@ -30,7 +30,9 @@ Each variant is one hand-authored room that isolates one coordination problem.
 ## Bundled policies
 
 Both champions are prompt policies. A seat registers with `PLAYER_PROMPT=<your standing orders>`
-and the game asks an LLM for one **shift order** every 50 ticks:
+and the game grants a private window for one **shift order** every 50 ticks.
+The platform-hosted player calls its native sidecar; direct provider endpoints
+and credential fallback paths are removed:
 
 ```json
 {"station":"chop","recipe":"soup","zone":"left","handoff":"Cog-D","yield_to":"none",
@@ -44,7 +46,9 @@ and shown to spectators; `note` is private and comes back only to you.
 
 The same image also ships four scripted baselines, selected with
 `PLAYER_SCRIPTED=brigade|runner|passer|courier`. Every prompt seat falls back to `brigade` when a
-plan turn produces nothing usable, so an episode always finishes.
+plan turn produces nothing usable. Public completion additionally requires
+observed reader, player and engine joins; unresolved owners retain private
+evidence and withhold final outputs. See [training evidence](TRAINING.md).
 
 ## Scoring
 
