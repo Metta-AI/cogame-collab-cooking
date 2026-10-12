@@ -175,7 +175,7 @@ def results_schema() -> dict:
             "game", "protocol", "reason", "layout", "steps", "dishes", "scores",
             "delivered", "served_by_recipe", "orders_arrived", "orders_expired",
             "burned", "blocked_moves", "handoffs", "names", "aliases",
-            "seat_kinds", "cross_play", "disconnected", "fallbacks", "llm_requests",
+            "seat_kinds", "cross_play", "disconnected", "fallbacks", "action_fallbacks", "llm_requests",
         ],
         "properties": {
             "game": {"type": "string", "const": GAME_NAME},
@@ -226,6 +226,20 @@ def results_schema() -> dict:
                 "maxItems": NUM_AGENTS,
             },
             "fallbacks": bounded_int_array("Plan turns this seat fell back to its baseline."),
+            "action_fallbacks": {
+                "type": "array",
+                "minItems": NUM_AGENTS,
+                "maxItems": NUM_AGENTS,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["invalid_action", "deadline", "disconnected", "malformed_frame"],
+                    "properties": {
+                        cause: {"type": "integer", "minimum": 0}
+                        for cause in ("invalid_action", "deadline", "disconnected", "malformed_frame")
+                    },
+                },
+            },
             "llm_requests": {"type": "integer", "minimum": 0},
         },
     }
