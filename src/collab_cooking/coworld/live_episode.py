@@ -968,7 +968,7 @@ class LiveMettaGridEpisode:
     # -- settle -------------------------------------------------------------
     def results(self) -> dict[str, Any]:
         delivered = self.delivered() if self.reason != "no_players" else [0] * len(self.tokens)
-        result = results_mod.build_results(
+        return results_mod.build_results(
             reason=self.reason,
             layout=self.config.layout,
             steps=int(self.sim.current_step),
@@ -984,10 +984,9 @@ class LiveMettaGridEpisode:
             seat_kinds=[seat.seat_kind for seat in self.seats],
             disconnected=[not seat.ever_connected for seat in self.seats],
             fallbacks=[seat.fallbacks for seat in self.seats],
+            action_fallbacks=[seat.action_fallbacks for seat in self.seats],
             llm_requests=self.planner.requests if self.planner else 0,
         )
-        result["action_fallbacks"] = [dict(seat.action_fallbacks) for seat in self.seats]
-        return result
 
     async def _settle(self, reason: str) -> None:
         self.reason = reason

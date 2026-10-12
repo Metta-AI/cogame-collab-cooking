@@ -93,6 +93,7 @@ def test_results_schema_covers_every_key_and_bounds_the_reason() -> None:
         aliases=["Cog-A", "Cog-B", "Cog-C", "Cog-D"],
         seat_kinds=["prompt", "scripted:brigade", "scripted:passer", "scripted:courier"],
         disconnected=[False] * 4, fallbacks=[0] * 4, llm_requests=0,
+        action_fallbacks=[dict(invalid_action=0, deadline=0, disconnected=0, malformed_frame=0) for _ in range(4)],
     )
     assert set(sample) == set(schema["properties"]), "results.json and its schema disagree"
     assert set(schema["required"]) == set(sample)
