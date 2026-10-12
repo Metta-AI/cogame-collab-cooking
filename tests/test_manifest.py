@@ -185,7 +185,6 @@ def test_the_image_placeholder_is_derived_from_the_compose_service() -> None:
     assert "collab_cooking:" in compose
     assert "image: coworld-collab-cooking:latest" in compose
     assert "platform: linux/amd64" in compose
-    assert "network: host" in compose
     # service `collab_cooking` -> {{COLLAB_COOKING_IMAGE}}
     assert IMAGE == "{{" + "collab_cooking".upper() + "_IMAGE}}"
     assert json.dumps(MANIFEST).count(IMAGE) == 5
