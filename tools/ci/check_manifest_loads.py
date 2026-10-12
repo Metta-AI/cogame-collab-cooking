@@ -2,7 +2,7 @@
 """Load `coworld_manifest_template.json` with the pinned coworld's own loader.
 
 `coworld build` validates the template BEFORE it touches docker
-(`coworld/bundle.py::_load_template_manifest`), and every level of the model is
+(`coworld.manifest.validate_upload_manifest`), and every level of the model is
 `extra="forbid"`. A key in the wrong object therefore fails the FIRST step of
 `coworld-release.yml` ("Build the Coworld manifest"), where no other CI job
 would see it -- `ci.yml` only calls the build hook directly. Running the real
@@ -25,7 +25,7 @@ import json
 import pathlib
 import sys
 
-from coworld.bundle import _load_template_manifest
+from coworld.manifest import validate_upload_manifest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 IMAGE_PLACEHOLDER = "{{COLLAB_COOKING_IMAGE}}"
@@ -40,9 +40,13 @@ def main() -> None:
             "(bundle.py: 'Coworld manifest templates must not set game.version') -- "
             "the version comes from the --version flag"
         )
-    # The same call `coworld build` makes, with the compose service's image
-    # placeholder resolved the way `_compose_image_placeholders` resolves it.
-    manifest = _load_template_manifest(raw, "0.1.0", {IMAGE_PLACEHOLDER: "coworld-collab-cooking:latest"})
+    # Hydrate this template's version and compose image before using the same
+    # public validator as `coworld build`.
+    raw["game"]["version"] = "0.1.0"
+    for runnable in [raw["game"]["runnable"], *raw["player"]]:
+        if runnable["image"] == IMAGE_PLACEHOLDER:
+            runnable["image"] = "coworld-collab-cooking:latest"
+    manifest = validate_upload_manifest(raw).runtime_manifest
 
     viewer = manifest.game.replay_viewer
     if viewer is None or viewer.bundle != "static-replay-viewer":
