@@ -42,6 +42,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from collab_cooking.coworld.live_episode import EpisodeConfig, LiveMettaGridEpisode
 from collab_cooking.coworld.llm import LlmPlanner
+from collab_cooking.coworld.prompts import PromptSelection
 from collab_cooking.missions.kitchen import mission_for_config
 
 PROCESS_START = time.monotonic()
@@ -130,6 +131,7 @@ class CoworldGame:
                 for index, entry in enumerate(raw_config.get("players") or [])
             ],
             planner=planner,
+            prompt_selection=PromptSelection.model_validate(raw_config),
             process_start=process_start if process_start is not None else PROCESS_START,
             disconnect_exception_types=(RuntimeError, WebSocketDisconnect),
             request_shutdown=request_shutdown,

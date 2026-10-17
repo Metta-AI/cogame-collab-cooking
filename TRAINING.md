@@ -46,3 +46,62 @@ verify the training protocol and game score. They do not measure a trained
 policy's quality. This bridge trains per-tick numeric actions. The hosted
 prompt-plan policies choose shift jobs while their ordinary players
 submit per-tick actions through the same seat observation/action protocol.
+
+## Shift-order language collection
+
+`tools/plan_bridge.py --variant cramped` collects the production JSON shift
+orders rather than per-tick movement actions. It uses the published kitchen,
+900-tick horizon, plan interval, parser, seat-local remembered observations, and
+player executors. Four seat views are frozen together. Four parsed plans are
+queued, then the executors advance the simulator to the next planning boundary.
+The accepted action is the normalized directive, not a guarantee that its job
+succeeded. The existing numeric bridge keeps its per-tick contract.
+
+This bridge deliberately synchronizes planning. It does not reproduce hosted
+wall-clock inference latency, the rolling request budget, or late plan delivery.
+Measure those effects separately through the ordinary native host and players.
+Never describe synchronous collector outcomes as proof of native timing parity.
+Its `teacher` command cycles through legal stations as a deterministic workflow
+fixture. Those actions are not expert labels or evidence of policy quality.
+
+The hosted game accepts `promptVariant` and `promptSeed` in configuration. The
+language bridge accepts the same keys on `reset`. Available training wordings are
+`canonical`, `plain`, `numbered`, `questions`, and `reordered`. `mixed` requires an
+explicit nonnegative prompt seed and selects training wording `seed % 5`. It does
+not consume kitchen or alias randomness. The choice stays fixed across all seats,
+turns, and retries. The canonical introduction is the default.
+
+`heldout-briefing` and `heldout-reference` are reserved for evaluation. The bridge
+rejects them with `split: train`; use `split: validation` or `split: test` after
+freezing training choices. Private bridge observations include bank version,
+selected wording, selection seed, and hashes of the exact system/user messages.
+Standing orders and action requirements stay fixed. All wordings now state the
+published score correctly: team dishes plus `0.01 * own deliveries`.
+
+For matched experiments, keep every wording and kitchen variant of a scenario
+seed in the same data split. Compare base, canonical-trained, and mixed-trained
+checkpoints with identical scenario seeds, seat assignments, partner policies,
+kitchens, and inference budgets. Report invalid directives, late plans, budget
+skips, fallbacks, incomplete games, team dishes, and per-seat scores separately.
+
+Set `COLLAB_COOKING_TRACE_PATH` to a new private JSONL path to capture native
+requests. The host creates it exclusively with mode `0600`. Set
+`COWORLD_EPISODE_ID` and `COWORLD_SOURCE_REVISION` for attribution; absent values
+remain null. Each actual attempt records its start, request body, exact messages,
+hashes, response, and parse outcome. Credentials are excluded.
+
+Separate `plan_decision` records identify the attempt selected by the host, or
+the fallback reason. A send attempt does not prove player acknowledgement; that
+field remains null. Late inference completions can follow a timeout or episode
+end and must not become accepted labels. Serving call IDs and behavior
+log-probabilities remain null when unavailable. These files are candidate
+evidence; dataset admission still requires executed-action matching and review.
+
+Run `python tools/test_prompt_native_games.py --output /absolute/new/directory`
+for 22 ordinary native episodes with four real players. The panel covers all
+eight kitchens, seven direct wordings and mixed selection in cramped/forced
+kitchens. It uses a reserved non-listening local endpoint to exercise actual
+transport failure, retries, rate-budget skips, and fallback provenance without
+paid inference. `--smoke` selects two full cramped episodes for CI. Neither
+command shortens the 900-tick horizon, pacing, or budgets. The synchronous panel
+is `python -m pytest tests/test_prompt_games.py -q`.

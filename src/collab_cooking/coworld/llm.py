@@ -7,6 +7,7 @@ The game owns parallel dispatch, retries, and its scripted fallback.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -16,11 +17,12 @@ import urllib.error
 import urllib.request
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from collab_cooking.coworld.evidence import InferenceAttempt, PrivateEvidence
 from collab_cooking.coworld.plans import (
     ERROR_RUNES,
     RETRY_HINT,
@@ -29,6 +31,7 @@ from collab_cooking.coworld.plans import (
     parse_plan,
     truncate_runes,
 )
+from collab_cooking.coworld.prompts import PromptSelection
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -48,6 +51,7 @@ class PlanRequest:
     user: str
     legal_stations: list[str]
     ally_aliases: list[str]
+    prompt_template: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +134,8 @@ class _Transport:
         self.endpoint = endpoint.rstrip("/")
         self.bedrock_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
 
-    def complete(self, system: str, user: str, max_tokens: int, slot: int) -> str:
+    def complete(self, system: str, user: str, max_tokens: int, slot: int,
+                 attempt: InferenceAttempt, evidence: PrivateEvidence) -> str:
         if self.kind == "bedrock":
             url = f"{self.endpoint}/model/{self.model}/invoke"
             # `output_config.effort` is never sent: Haiku 4.5 rejects it.
@@ -160,25 +165,30 @@ class _Transport:
             }
         if self.kind == "sidecar":
             headers["X-Coworld-Player-Slot"] = str(slot)
+        attempt.model, attempt.transport, attempt.request = self.model, self.kind, body
+        evidence.write(attempt)
         request = urllib.request.Request(  # noqa: S310 - fixed https endpoints
             url, data=json.dumps(body).encode("utf-8"), method="POST", headers=headers
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
-                payload = json.loads(response.read().decode("utf-8"))
+                attempt.raw_response = response.read().decode("utf-8")
+                payload = json.loads(attempt.raw_response)
         except urllib.error.HTTPError as exc:
             detail = ""
             try:
-                detail = exc.read().decode("utf-8", errors="replace")[:200]
+                attempt.raw_response = exc.read().decode("utf-8", errors="replace")
+                detail = attempt.raw_response[:200]
             except Exception:  # noqa: BLE001
                 detail = ""
             raise RuntimeError(f"http {exc.code}: {detail}") from exc
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"{type(exc).__name__}: {exc}") from exc
         blocks = payload.get("content") or []
-        return "".join(
+        attempt.response = "".join(
             block.get("text", "") for block in blocks if isinstance(block, dict) and block.get("type") == "text"
         )
+        return attempt.response
 
 
 def build_transport(model: str, timeout: float) -> _Transport | None:
@@ -251,6 +261,7 @@ class LlmPlanner:
         max_workers: int = 4,
         transport: Any | None = None,
     ) -> None:
+        self.evidence = PrivateEvidence()
         self.model = model
         self.max_output_tokens = max_output_tokens
         self.timeout_seconds = timeout_seconds
@@ -278,11 +289,11 @@ class LlmPlanner:
         """Submit every prompt seat's call at once. Returns immediately."""
         batch = PlanBatch(turn=turn, deadline=time.monotonic() + self.timeout_seconds)
         for request in requests:
-            batch.futures[request.slot] = self._pool.submit(self._one_seat, request)
+            batch.futures[request.slot] = self._pool.submit(self._one_seat, turn, request)
         return batch
 
     # -- worker -------------------------------------------------------------
-    def _one_seat(self, request: PlanRequest) -> PlanOutcome:
+    def _one_seat(self, turn: int, request: PlanRequest) -> PlanOutcome:
         """Call, parse, retry once, else fall back. Never raises."""
         if self._transport is None:
             return PlanOutcome(slot=request.slot, plan=None, cause="disabled")
@@ -295,12 +306,19 @@ class LlmPlanner:
                 return PlanOutcome(
                     slot=request.slot, plan=None, cause="rate_budget", detail="26 req/min", requests=used
                 )
+            entry = InferenceAttempt(
+                turn=turn, slot=request.slot, attempt=attempt,
+                prompt=[{"role": "system", "content": request.system}, {"role": "user", "content": user}],
+                prompt_template={**request.prompt_template,
+                                 "user_sha256": hashlib.sha256(user.encode()).hexdigest()},
+            )
             used += 1
             with self._requests_lock:
                 self._requests += 1
             try:
-                text = self._transport.complete(request.system, user, self.max_output_tokens, request.slot)
+                text = self._transport.complete(request.system, user, self.max_output_tokens, request.slot, entry, self.evidence)
             except Exception as exc:  # noqa: BLE001 - classified, never escapes
+                entry.rejection_reason = str(exc)
                 message = f"{exc}"
                 cause = "timeout" if "timed out" in message.lower() or "timeout" in message.lower() else "transport"
                 detail = truncate_runes(message, ERROR_RUNES)
@@ -309,10 +327,16 @@ class LlmPlanner:
                 try:
                     plan = parse_plan(text, request.legal_stations, request.ally_aliases)
                 except PlanError as exc:
+                    entry.rejection_reason = str(exc)
                     cause, detail = exc.cause, exc.detail
                     _log(f"slot {request.slot} attempt {attempt}: {cause} {detail}")
                 else:
+                    entry.kind = "inference_finished"
+                    entry.parsed_plan = asdict(plan)
+                    self.evidence.write(entry)
                     return PlanOutcome(slot=request.slot, plan=plan, requests=used)
+            entry.kind = "inference_finished"
+            self.evidence.write(entry)
             if attempt == 0:
                 user = f"{request.user}\n\n{RETRY_HINT}"
         return PlanOutcome(slot=request.slot, plan=None, cause=cause, detail=detail, requests=used)
@@ -325,15 +349,15 @@ class LlmPlanner:
 # prompt seat can never see further than a scripted one.
 # ---------------------------------------------------------------------------
 
-SYSTEM_TEMPLATE = """You are {alias}, one of 4 cogs running a kitchen together for {max_steps} ticks.
-Orders arrive on the board every 18 ticks and expire 50 ticks later. A dish is a chain:
+SYSTEM_TEMPLATE = """Orders arrive on the board every 18 ticks and expire 50 ticks later. A dish is a chain:
 fetch veg or meat -> chop it (3 uses) -> pot it (soup: chopped veg + chopped meat, 10 ticks,
 burns 14 ticks after it is ready) or fry it (chopped veg, 8 ticks, burns after 11) or plate
 chopped veg as a salad -> carry it to the pass and serve it against a live ticket -> the plate
 comes back dirty and needs 3 uses at the sink.
 YOU CAN CARRY EXACTLY ONE THING. Counters (the walls) hold one item each: put your item down
 and a team-mate can pick it up. That is often faster than walking round.
-Your score and everyone else's is the same number: dishes the team serves. Nothing else scores.
+Your score is the team's dishes served plus 0.01 times the dishes you personally delivered.
+Maximize team dishes first; your deliveries break ties. No other activity scores.
 Kitchen: {layout} - {layout_line}
 You give one standing order; a controller walks you there tick by tick until your next order,
 about {plan_interval} ticks from now.
@@ -349,10 +373,11 @@ USER_CAP = 2000
 
 
 def build_system_prompt(
-    alias: str, max_steps: int, layout: str, layout_line: str, plan_interval: int, standing_orders: str
+    alias: str, max_steps: int, layout: str, layout_line: str, plan_interval: int, standing_orders: str,
+    *, selection: PromptSelection,
 ) -> str:
     """The constant system block, with the seat's PLAYER_PROMPT appended."""
-    body = SYSTEM_TEMPLATE.format(
+    body = selection.introduction(alias, max_steps) + SYSTEM_TEMPLATE.format(
         alias=alias,
         max_steps=max_steps,
         layout=layout,

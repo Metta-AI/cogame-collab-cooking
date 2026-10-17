@@ -12,6 +12,7 @@ import time
 
 import pytest
 
+from collab_cooking.coworld.evidence import InferenceAttempt, PrivateEvidence
 from collab_cooking.coworld.llm import (
     LlmPlanner,
     PlanRequest,
@@ -27,6 +28,7 @@ from collab_cooking.coworld.plans import (
     parse_plan,
     truncate_runes,
 )
+from collab_cooking.coworld.prompts import PromptSelection
 
 LEGAL = ["veg", "meat", "plate", "chop", "sink", "board", "hold"]
 ALLIES = ["Cog-A", "Cog-B", "Cog-C", "Cog-D", "none"]
@@ -42,7 +44,8 @@ class StubTransport:
         self.delay = delay
         self._lock = threading.Lock()
 
-    def complete(self, system: str, user: str, max_tokens: int, slot: int) -> str:
+    def complete(self, system: str, user: str, max_tokens: int, slot: int,
+                 attempt: InferenceAttempt, evidence: PrivateEvidence) -> str:
         if self.barrier is not None:
             # Every seat must be in flight at the same time or this times out.
             self.barrier.wait(timeout=5)
@@ -61,6 +64,7 @@ def request(slot: int = 0) -> PlanRequest:
     return PlanRequest(
         slot=slot, alias=f"Cog-{'ABCD'[slot]}", system="sys", user="obs",
         legal_stations=LEGAL, ally_aliases=ALLIES,
+        prompt_template=PromptSelection().metadata("sys", "obs"),
     )
 
 
@@ -215,7 +219,7 @@ def test_no_credentials_means_zero_network_calls_and_immediate_fallbacks(monkeyp
 # -- the prompt ------------------------------------------------------------
 def test_the_system_prompt_demands_a_reply_that_begins_with_a_brace() -> None:
     prompt = build_system_prompt(
-        "Cog-C", 900, "forced", "two sealed halves", 50, "keep the pot busy"
+        "Cog-C", 900, "forced", "two sealed halves", 50, "keep the pot busy", selection=PromptSelection()
     )
     assert "MUST begin with the character {" in prompt
     assert "Cog-C" in prompt and "forced" in prompt
@@ -298,7 +302,11 @@ def test_hosted_transport_posts_native_messages_with_seat_attribution(monkeypatc
         from collab_cooking.coworld.llm import build_transport
         transport = build_transport("local-model", 5)
         for slot in (0, 1):
-            assert transport.complete("rules", "private view", 64, slot) == "ok"
+            entry = InferenceAttempt(turn=1, slot=slot, attempt=0,
+                                     prompt=[{"role": "system", "content": "rules"},
+                                             {"role": "user", "content": "private view"}],
+                                     prompt_template=PromptSelection().metadata("rules", "private view"))
+            assert transport.complete("rules", "private view", 64, slot, entry, PrivateEvidence()) == "ok"
     finally:
         server.shutdown()
         server.server_close()
