@@ -59,9 +59,6 @@ jobs:
       - name: Run the tests
         run: python -m pytest tests/ -v
 
-      - name: Run complete native prompt episodes
-        run: python tools/test_prompt_native_games.py --smoke --output "$RUNNER_TEMP/prompt-native"
-
       # The manifest template is the input to coworld-release.yml's FIRST step
       # ("Build the Coworld manifest"), and `coworld build` validates it with a
       # model that forbids extra keys at every level before it touches docker.

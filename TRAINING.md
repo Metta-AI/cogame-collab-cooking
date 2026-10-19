@@ -84,24 +84,9 @@ checkpoints with identical scenario seeds, seat assignments, partner policies,
 kitchens, and inference budgets. Report invalid directives, late plans, budget
 skips, fallbacks, incomplete games, team dishes, and per-seat scores separately.
 
-Set `COLLAB_COOKING_TRACE_PATH` to a new private JSONL path to capture native
-requests. The host creates it exclusively with mode `0600`. Set
-`COWORLD_EPISODE_ID` and `COWORLD_SOURCE_REVISION` for attribution; absent values
-remain null. Each actual attempt records its start, request body, exact messages,
-hashes, response, and parse outcome. Credentials are excluded.
-
-Separate `plan_decision` records identify the attempt selected by the host, or
-the fallback reason. A send attempt does not prove player acknowledgement; that
-field remains null. Late inference completions can follow a timeout or episode
-end and must not become accepted labels. Serving call IDs and behavior
-log-probabilities remain null when unavailable. These files are candidate
-evidence; dataset admission still requires executed-action matching and review.
-
-Run `python tools/test_prompt_native_games.py --output /absolute/new/directory`
-for 22 ordinary native episodes with four real players. The panel covers all
-eight kitchens, seven direct wordings and mixed selection in cramped/forced
-kitchens. It uses a reserved non-listening local endpoint to exercise actual
-transport failure, retries, rate-budget skips, and fallback provenance without
-paid inference. `--smoke` selects two full cramped episodes for CI. Neither
-command shortens the 900-tick horizon, pacing, or budgets. The synchronous panel
-is `python -m pytest tests/test_prompt_games.py -q`.
+Run `python -m pytest tests/test_prompt_games.py -q` for complete synchronous
+shift-order games across all eight kitchens, using the real parser, executors,
+and simulator. The wording bank varies the dish chain, handoffs, and work cadence;
+recipe values, scoring, and response requirements remain fixed.
+Existing hosted transport tests cover request formatting and seat attribution.
+These checks do not establish native timing parity or learned robustness.

@@ -29,7 +29,7 @@ import itertools
 import random
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from mettagrid.config.mettagrid_config import MettaGridConfig
@@ -42,7 +42,6 @@ from collab_cooking.agent.brain.obs_parser import ObsParser
 from collab_cooking.agent.brain.policy import BASELINE_NAMES, DEFAULT_BASELINE
 from collab_cooking.coworld import replay as replay_mod
 from collab_cooking.coworld import results as results_mod
-from collab_cooking.coworld.evidence import EpisodeEnd, PlanDecision, PrivateEvidence
 from collab_cooking.coworld.llm import (
     LlmPlanner,
     PlanBatch,
@@ -284,7 +283,6 @@ class LiveMettaGridEpisode:
         self.step_seconds = config.step_seconds
 
         self.planner = planner
-        self.evidence = planner.evidence if planner is not None else PrivateEvidence()
         self.batch: PlanBatch | None = None
         self.turn = 0
         self.last_batch_at = 0.0
@@ -660,9 +658,6 @@ class LiveMettaGridEpisode:
         for seat in seats:
             seat.fallbacks += 1
             self._push_event({"ev": "fallback", "slot": seat.slot, "alias": seat.alias, "cause": cause})
-            self.evidence.write(PlanDecision(turn=self.turn, slot=seat.slot, step=int(self.sim.current_step),
-                                            source=f"fallback:{cause}", selected_attempt=None,
-                                            directive={}, send_attempted=False))
 
     def _plan_request(self, seat: Seat) -> PlanRequest:
         view = self._seat_view(seat)
@@ -836,9 +831,6 @@ class LiveMettaGridEpisode:
         for outcome in self.batch.poll():
             seat = self.seats[outcome.slot]
             seat.plan_pending = False
-            send_attempted = any(
-                connection_id in self.connections for connection_id in self.connections_by_slot[seat.slot]
-            )
             if outcome.ok and outcome.plan is not None:
                 plan = outcome.plan
                 seat.say = plan.say
@@ -898,16 +890,6 @@ class LiveMettaGridEpisode:
                         "src": outcome.src,
                     },
                 )
-
-            self.evidence.write(PlanDecision(
-                turn=self.batch.turn, slot=seat.slot, step=int(self.sim.current_step), source=outcome.src,
-                selected_attempt=outcome.requests - 1 if outcome.ok else None,
-                directive=asdict(outcome.plan) if outcome.plan is not None else {
-                    "station": "", "recipe": "any", "zone": "any", "handoff": "none",
-                    "yield_to": "none", "say": "", "note": "",
-                },
-                send_attempted=send_attempted,
-            ))
 
     # -- messages -----------------------------------------------------------
     async def _send_observations(self) -> None:
@@ -1021,7 +1003,6 @@ class LiveMettaGridEpisode:
             self._push_event({"ev": "deadline", "step": int(self.sim.current_step)})
         self._push_event({"ev": "episode_end", "reason": reason})
         results = self.results()
-        self.evidence.write(EpisodeEnd(status="completed" if reason == "complete" else "truncated", results=results))
         if self.writer is not None:
             self.writer.seats = [self.seat_block(seat) for seat in self.seats]
             self.writer.heat = self.heat

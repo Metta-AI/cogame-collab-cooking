@@ -12,7 +12,6 @@ import time
 
 import pytest
 
-from collab_cooking.coworld.evidence import InferenceAttempt, PrivateEvidence
 from collab_cooking.coworld.llm import (
     LlmPlanner,
     PlanRequest,
@@ -44,8 +43,7 @@ class StubTransport:
         self.delay = delay
         self._lock = threading.Lock()
 
-    def complete(self, system: str, user: str, max_tokens: int, slot: int,
-                 attempt: InferenceAttempt, evidence: PrivateEvidence) -> str:
+    def complete(self, system: str, user: str, max_tokens: int, slot: int) -> str:
         if self.barrier is not None:
             # Every seat must be in flight at the same time or this times out.
             self.barrier.wait(timeout=5)
@@ -302,11 +300,7 @@ def test_hosted_transport_posts_native_messages_with_seat_attribution(monkeypatc
         from collab_cooking.coworld.llm import build_transport
         transport = build_transport("local-model", 5)
         for slot in (0, 1):
-            entry = InferenceAttempt(turn=1, slot=slot, attempt=0,
-                                     prompt=[{"role": "system", "content": "rules"},
-                                             {"role": "user", "content": "private view"}],
-                                     prompt_template=PromptSelection().metadata("rules", "private view"))
-            assert transport.complete("rules", "private view", 64, slot, entry, PrivateEvidence()) == "ok"
+            assert transport.complete("rules", "private view", 64, slot) == "ok"
     finally:
         server.shutdown()
         server.server_close()
