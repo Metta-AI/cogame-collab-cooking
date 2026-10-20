@@ -15,7 +15,7 @@ Guidance for coding agents working in `cogame-collab-cooking`.
 Two starters, and nothing is spliced between them:
 
 * the **kitchen** (`src/collab_cooking/game/`, `src/collab_cooking/agent/brain/`) is
-  `Metta-AI/coworld-overcogged`'s mettagrid game and scripted brain;
+  the original kitchen implementation and scripted brain, retained locally;
 * the **viewer** (`replay-viewer/`, `client/`) is `Metta-AI/coworld-ctf` -- the wasm entry, the
   emscripten link flags, the JS bootstrap, `chrome_common.js` and `broadcast_core.js` all come
   from there and only from there. The flags and the bootstrap are a matched pair; a mixture

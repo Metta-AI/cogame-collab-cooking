@@ -59,6 +59,7 @@ from collab_cooking.coworld.plan_protocol import (
     ScriptedRegistration,
 )
 from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, POLICY_NAME_RUNES, truncate_runes
+from collab_cooking.coworld.prompts import CANONICAL_SELECTION, PromptSelection
 from collab_cooking.game.game import (
     CHOP_MEAT_PROGRESS,
     CHOP_VEG_PROGRESS,
@@ -216,6 +217,7 @@ class LiveMettaGridEpisode:
         config: EpisodeConfig,
         tokens: list[str],
         player_names: list[str],
+        prompt_selection: PromptSelection = CANONICAL_SELECTION,
         process_start: float | None = None,
         disconnect_exception_types: tuple[type[Exception], ...] = (RuntimeError,),
         request_shutdown: Callable[[], None] = lambda: None,
@@ -224,6 +226,7 @@ class LiveMettaGridEpisode:
         self.sim = sim
         self.policy_env = policy_env
         self.config = config
+        self.prompt_selection = prompt_selection
         self.tokens = list(tokens)
         self.process_start = process_start if process_start is not None else time.monotonic()
         self.disconnect_exception_types = disconnect_exception_types
@@ -294,7 +297,10 @@ class LiveMettaGridEpisode:
         self.burned = {"pot": 0, "fryer": 0}
         self.state = replay_mod.TickState(step=0, cogs=[], delivered=[0] * len(self.tokens))
 
-        self.journal = Journal.from_environment(config.as_dict(), evidence_profile=evidence_profile)
+        self.journal = Journal.from_environment(
+            {**config.as_dict(), **prompt_selection.model_dump(mode="json", by_alias=True)},
+            evidence_profile=evidence_profile,
+        )
         self.writer: replay_mod.ReplayWriter | None = None
         self._artifact_sink: Callable[[bytes, bytes], None] | None = None
         self.artifact_publisher: Callable[[], Awaitable[None]] | None = None
@@ -309,6 +315,7 @@ class LiveMettaGridEpisode:
         config: EpisodeConfig,
         tokens: list[str],
         player_names: list[str],
+        prompt_selection: PromptSelection = CANONICAL_SELECTION,
         process_start: float | None = None,
         disconnect_exception_types: tuple[type[Exception], ...] = (RuntimeError,),
         request_shutdown: Callable[[], None] = lambda: None,
@@ -321,6 +328,7 @@ class LiveMettaGridEpisode:
             config=config,
             tokens=tokens,
             player_names=player_names,
+            prompt_selection=prompt_selection,
             process_start=process_start,
             disconnect_exception_types=disconnect_exception_types,
             request_shutdown=request_shutdown,
@@ -730,6 +738,7 @@ class LiveMettaGridEpisode:
                 LAYOUT_LINES.get(self.config.layout, ""),
                 self.config.plan_interval_steps,
                 seat.prompt,
+                selection=self.prompt_selection,
             ),
             user=build_user_message(view.model_dump()),
             legal_stations=view.legal_stations,
@@ -1012,7 +1021,7 @@ class LiveMettaGridEpisode:
     # -- settle -------------------------------------------------------------
     def results(self) -> dict[str, Any]:
         delivered = self.delivered() if self.reason != "no_players" else [0] * len(self.tokens)
-        result = results_mod.build_results(
+        return results_mod.build_results(
             reason=self.reason,
             layout=self.config.layout,
             steps=int(self.sim.current_step),
@@ -1028,10 +1037,9 @@ class LiveMettaGridEpisode:
             seat_kinds=[seat.seat_kind for seat in self.seats],
             disconnected=[not seat.ever_connected for seat in self.seats],
             fallbacks=[seat.fallbacks for seat in self.seats],
+            action_fallbacks=[seat.action_fallbacks for seat in self.seats],
             llm_requests=sum(len(entry.grants) for entry in self.admission.history.values()),
         )
-        result["action_fallbacks"] = [dict(seat.action_fallbacks) for seat in self.seats]
-        return result
 
     async def stop_players(self, deadline: float) -> None:
         """One absolute budget joins actual receivers before private or public sealing."""

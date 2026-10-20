@@ -32,7 +32,7 @@ async def test_source_private_teacher_reaches_actual_cpp_and_common_canonical_pr
         assert decision.execution.start_tick == 1 and decision.execution.end_tick == 12
         attempt = decision.attempts[0]
         assert attempt.origin == "teacher" and attempt.policy == TEACHER_POLICY
-        assert not attempt.is_model_call
+        assert attempt.platform_call_id is None and attempt.generation_id is None
         assert attempt.response == json.dumps(decision.executed_action, separators=(",", ":"))
         assert attempt.parsed_action == decision.executed_action
         assert attempt.response_reader_joined is None and attempt.response_complete is None
@@ -112,4 +112,4 @@ def test_actual_collector_cli_hydrates_a_valid_source_version_and_preserves_temp
     assert episode.episode.source_revision == "a" * 40
     assert episode.episode.outcome["runtime_configuration"]["max_steps"] == 12
     assert episode.episode.outcome["evidence_profile"] == "scripted_teacher_logical_clock_v1"
-    assert all(not attempt.is_model_call for decision in episode.decisions for attempt in decision.attempts)
+    assert all(attempt.origin == "teacher" for decision in episode.decisions for attempt in decision.attempts)

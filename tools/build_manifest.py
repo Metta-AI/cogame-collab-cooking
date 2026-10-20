@@ -127,6 +127,22 @@ def config_schema() -> dict:
             "num_agents": {"type": "integer", "minimum": NUM_AGENTS, "maximum": NUM_AGENTS},
             "layout": {"type": "string", "enum": list(LAYOUT_NAMES)},
             "seed": {"type": "integer", "minimum": 0},
+            "promptVariant": {
+                "type": "string",
+                "default": "canonical",
+                "enum": [
+                    "canonical",
+                    "plain",
+                    "numbered",
+                    "questions",
+                    "reordered",
+                    "heldout-briefing",
+                    "heldout-reference",
+                    "mixed",
+                ],
+                "description": "Episode-stable wording; mixed requires an independent promptSeed.",
+            },
+            "promptSeed": {"type": "integer", "minimum": 0},
             "max_steps": {"type": "integer", "minimum": 1, "maximum": 2000},
             "step_seconds": {"type": "number", "minimum": 0.01, "maximum": 1.0},
             "policy_action_timeout_seconds": {"type": "number", "minimum": 0.01, "maximum": 5.0},
@@ -190,6 +206,7 @@ def results_schema() -> dict:
             "cross_play",
             "disconnected",
             "fallbacks",
+            "action_fallbacks",
             "llm_requests",
         ],
         "properties": {
@@ -241,6 +258,20 @@ def results_schema() -> dict:
                 "maxItems": NUM_AGENTS,
             },
             "fallbacks": bounded_int_array("Plan turns this seat fell back to its baseline."),
+            "action_fallbacks": {
+                "type": "array",
+                "minItems": NUM_AGENTS,
+                "maxItems": NUM_AGENTS,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["invalid_action", "deadline", "disconnected", "malformed_frame"],
+                    "properties": {
+                        cause: {"type": "integer", "minimum": 0}
+                        for cause in ("invalid_action", "deadline", "disconnected", "malformed_frame")
+                    },
+                },
+            },
             "llm_requests": {"type": "integer", "minimum": 0},
         },
     }

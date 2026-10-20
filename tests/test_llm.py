@@ -4,6 +4,7 @@ import pytest
 
 from collab_cooking.coworld.llm import build_system_prompt, build_user_message
 from collab_cooking.coworld.plans import NOTE_RUNES, SAY_RUNES, PlanError, extract_object, parse_plan, truncate_runes
+from collab_cooking.coworld.prompts import PromptSelection
 
 LEGAL = ["veg", "meat", "plate", "chop", "sink", "board", "hold"]
 ALLIES = ["Cog-A", "Cog-B", "Cog-C", "Cog-D", "none"]
@@ -74,7 +75,9 @@ def test_free_text_is_truncated_on_rune_boundaries() -> None:
 
 # -- the prompt ------------------------------------------------------------
 def test_the_system_prompt_demands_a_reply_that_begins_with_a_brace() -> None:
-    prompt = build_system_prompt("Cog-C", 900, "forced", "two sealed halves", 50, "keep the pot busy")
+    prompt = build_system_prompt(
+        "Cog-C", 900, "forced", "two sealed halves", 50, "keep the pot busy", selection=PromptSelection()
+    )
     assert "MUST begin with the character {" in prompt
     assert "Cog-C" in prompt and "forced" in prompt
     assert "STANDING ORDERS: keep the pot busy" in prompt

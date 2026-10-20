@@ -35,6 +35,7 @@ def sample(**overrides) -> dict:
         disconnected=[False, False, False, False],
         fallbacks=[0, 1, 0, 0],
         llm_requests=68,
+        action_fallbacks=[dict(invalid_action=0, deadline=0, disconnected=0, malformed_frame=0) for _ in range(4)],
     )
     base.update(overrides)
     return build_results(**base)

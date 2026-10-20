@@ -53,6 +53,7 @@ def build_results(
     seat_kinds: list[str],
     disconnected: list[bool],
     fallbacks: list[int],
+    action_fallbacks: list[dict[str, int]],
     llm_requests: int,
 ) -> dict[str, Any]:
     if reason not in LEGAL_REASONS:
@@ -85,6 +86,7 @@ def build_results(
         "cross_play": bool(policy_seated and scripted_seated),
         "disconnected": [bool(v) for v in disconnected],
         "fallbacks": [int(v) for v in fallbacks],
+        "action_fallbacks": [dict(counts) for counts in action_fallbacks],
         "llm_requests": int(llm_requests),
     }
 

@@ -2,7 +2,7 @@
 """Load `coworld_manifest_template.json` with the pinned coworld's own loader.
 
 `coworld build` validates the template BEFORE it touches docker
-(`coworld/bundle.py::_load_template_manifest`), and every level of the model is
+(`coworld.manifest.validate_upload_manifest`), and every level of the model is
 `extra="forbid"`. A key in the wrong object therefore fails the FIRST step of
 `coworld-release.yml` ("Build the Coworld manifest"), where no other CI job
 would see it -- `ci.yml` only calls the build hook directly. Running the real

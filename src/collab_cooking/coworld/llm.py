@@ -2,16 +2,9 @@
 
 from typing import Any
 
-SYSTEM_TEMPLATE = """You are {alias}, one of 4 cogs running a kitchen together for {max_steps} ticks.
-Orders arrive on the board every 18 ticks and expire 50 ticks later. A dish is a chain:
-fetch veg or meat -> chop it (3 uses) -> pot it (soup: chopped veg + chopped meat, 10 ticks,
-burns 14 ticks after it is ready) or fry it (chopped veg, 8 ticks, burns after 11) or plate
-chopped veg as a salad -> carry it to the pass and serve it against a live ticket -> the plate
-comes back dirty and needs 3 uses at the sink.
-YOU CAN CARRY EXACTLY ONE THING. Counters (the walls) hold one item each: put your item down
-and a team-mate can pick it up. That is often faster than walking round.
-Your score and everyone else's is the same number: dishes the team serves. Nothing else scores.
-Kitchen: {layout} - {layout_line}
+from collab_cooking.coworld.prompts import RULE_TEMPLATES, PromptSelection
+
+SYSTEM_TEMPLATE = """Kitchen: {layout} - {layout_line}
 You give one standing order; a controller walks you there tick by tick until your next order,
 about {plan_interval} ticks from now.
 Reply with a single JSON object and NOTHING else. Your reply MUST begin with the character {{.
@@ -26,15 +19,26 @@ USER_CAP = 2000
 
 
 def build_system_prompt(
-    alias: str, max_steps: int, layout: str, layout_line: str, plan_interval: int, standing_orders: str
+    alias: str,
+    max_steps: int,
+    layout: str,
+    layout_line: str,
+    plan_interval: int,
+    standing_orders: str,
+    *,
+    selection: PromptSelection,
 ) -> str:
     """The constant system block, with the seat's PLAYER_PROMPT appended."""
-    body = SYSTEM_TEMPLATE.format(
-        alias=alias,
-        max_steps=max_steps,
-        layout=layout,
-        layout_line=layout_line,
-        plan_interval=plan_interval,
+    body = (
+        selection.introduction(alias, max_steps)
+        + RULE_TEMPLATES[selection.selected]
+        + SYSTEM_TEMPLATE.format(
+            alias=alias,
+            max_steps=max_steps,
+            layout=layout,
+            layout_line=layout_line,
+            plan_interval=plan_interval,
+        )
     )
     if standing_orders:
         body = f"{body}\nSTANDING ORDERS: {standing_orders}"

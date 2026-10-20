@@ -254,6 +254,9 @@ def test_action_fallbacks_distinguish_policy_errors_from_missing_actions(monkeyp
         tmp_path,
     )
     assert out["results"]["reason"] == "complete"
+    manifest = json.loads((Path(__file__).parents[1] / "coworld_manifest_template.json").read_text())
+    schema = manifest["game"]["results_schema"]
+    assert set(out["results"]) == set(schema["properties"]) == set(schema["required"])
     counts = out["results"]["action_fallbacks"]
     assert counts[0] == counts[3] == {"invalid_action": 0, "deadline": 0, "disconnected": 0, "malformed_frame": 0}
     assert counts[1] == {

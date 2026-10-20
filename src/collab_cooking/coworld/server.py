@@ -43,6 +43,7 @@ from collab_cooking.coworld import lifecycle
 from collab_cooking.coworld.artifact_io import ARTIFACT_SECONDS, read_uri, write_uri
 from collab_cooking.coworld.live_episode import EpisodeConfig, LiveMettaGridEpisode
 from collab_cooking.coworld.plan_protocol import MAX_FRAME_BYTES
+from collab_cooking.coworld.prompts import PromptSelection
 from collab_cooking.missions.kitchen import mission_for_config
 
 PROCESS_START = time.monotonic()
@@ -92,6 +93,7 @@ class CoworldGame:
         self.episode = LiveMettaGridEpisode.from_env(
             env,
             config=self.config,
+            prompt_selection=PromptSelection.model_validate(raw_config),
             tokens=self.tokens,
             player_names=[
                 str(entry.get("name", f"seat-{index}")) for index, entry in enumerate(raw_config.get("players") or [])

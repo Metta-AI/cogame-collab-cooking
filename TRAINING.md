@@ -102,3 +102,47 @@ and macro teacher evidence require separate source-pinned gates. They do not mea
 policy's quality. This bridge trains per-tick numeric actions. The hosted
 prompt-plan policies choose shift jobs while their ordinary players
 submit per-tick actions through the same seat observation/action protocol.
+
+## Shift-order language collection
+
+`tools/plan_bridge.py --variant cramped` collects the production JSON shift
+orders rather than per-tick movement actions. It uses the published kitchen,
+900-tick horizon, plan interval, parser, seat-local remembered observations, and
+player executors. Four seat views are frozen together. Four parsed plans are
+queued, then the executors advance the simulator to the next planning boundary.
+The accepted action is the normalized directive, not a guarantee that its job
+succeeded. The existing numeric bridge keeps its per-tick contract.
+
+This bridge deliberately synchronizes planning. It does not reproduce hosted
+wall-clock inference latency, the rolling request budget, or late plan delivery.
+Measure those effects separately through the ordinary native host and players.
+Never describe synchronous collector outcomes as proof of native timing parity.
+Its `teacher` command cycles through legal stations as a deterministic workflow
+fixture. Those actions are not expert labels or evidence of policy quality.
+
+The hosted game accepts `promptVariant` and `promptSeed` in configuration. The
+language bridge accepts the same keys on `reset`. Available training wordings are
+`canonical`, `plain`, `numbered`, `questions`, and `reordered`. `mixed` requires an
+explicit nonnegative prompt seed and selects training wording `seed % 5`. It does
+not consume kitchen or alias randomness. The choice stays fixed across all seats,
+turns, and retries. The canonical introduction is the default.
+
+`heldout-briefing` and `heldout-reference` are reserved for evaluation. The bridge
+rejects them with `split: train`; use `split: validation` or `split: test` after
+freezing training choices. Private bridge observations include bank version,
+selected wording, selection seed, and hashes of the exact system/user messages.
+Standing orders and action requirements stay fixed. All wordings now state the
+published score correctly: team dishes plus `0.01 * own deliveries`.
+
+For matched experiments, keep every wording and kitchen variant of a scenario
+seed in the same data split. Compare base, canonical-trained, and mixed-trained
+checkpoints with identical scenario seeds, seat assignments, partner policies,
+kitchens, and inference budgets. Report invalid directives, late plans, budget
+skips, fallbacks, incomplete games, team dishes, and per-seat scores separately.
+
+Run `python -m pytest tests/test_prompt_games.py -q` for complete synchronous
+shift-order games across all eight kitchens, using the real parser, executors,
+and simulator. The wording bank varies the dish chain, handoffs, and work cadence;
+recipe values, scoring, and response requirements remain fixed.
+Existing hosted transport tests cover request formatting and seat attribution.
+These checks do not establish native timing parity or learned robustness.
