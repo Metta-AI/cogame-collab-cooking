@@ -27,6 +27,7 @@ from collab_cooking.coworld.plans import (
     parse_plan,
     truncate_runes,
 )
+from collab_cooking.coworld.prompts import PromptSelection
 
 LEGAL = ["veg", "meat", "plate", "chop", "sink", "board", "hold"]
 ALLIES = ["Cog-A", "Cog-B", "Cog-C", "Cog-D", "none"]
@@ -61,6 +62,7 @@ def request(slot: int = 0) -> PlanRequest:
     return PlanRequest(
         slot=slot, alias=f"Cog-{'ABCD'[slot]}", system="sys", user="obs",
         legal_stations=LEGAL, ally_aliases=ALLIES,
+        prompt_template=PromptSelection().metadata("sys", "obs"),
     )
 
 
@@ -215,7 +217,7 @@ def test_no_credentials_means_zero_network_calls_and_immediate_fallbacks(monkeyp
 # -- the prompt ------------------------------------------------------------
 def test_the_system_prompt_demands_a_reply_that_begins_with_a_brace() -> None:
     prompt = build_system_prompt(
-        "Cog-C", 900, "forced", "two sealed halves", 50, "keep the pot busy"
+        "Cog-C", 900, "forced", "two sealed halves", 50, "keep the pot busy", selection=PromptSelection()
     )
     assert "MUST begin with the character {" in prompt
     assert "Cog-C" in prompt and "forced" in prompt

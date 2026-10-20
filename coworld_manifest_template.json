@@ -82,6 +82,25 @@
           "type": "integer",
           "minimum": 0
         },
+        "promptVariant": {
+          "type": "string",
+          "default": "canonical",
+          "enum": [
+            "canonical",
+            "plain",
+            "numbered",
+            "questions",
+            "reordered",
+            "heldout-briefing",
+            "heldout-reference",
+            "mixed"
+          ],
+          "description": "Episode-stable wording; mixed requires an independent promptSeed."
+        },
+        "promptSeed": {
+          "type": "integer",
+          "minimum": 0
+        },
         "max_steps": {
           "type": "integer",
           "minimum": 1,

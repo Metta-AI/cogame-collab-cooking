@@ -50,6 +50,7 @@ from collab_cooking.coworld.llm import (
     build_user_message,
 )
 from collab_cooking.coworld.plans import ALIAS_CAP, FEED_RUNES, POLICY_NAME_RUNES, PROMPT_RUNES, truncate_runes
+from collab_cooking.coworld.prompts import CANONICAL_SELECTION, PromptSelection
 from collab_cooking.game.game import (
     CHOP_MEAT_PROGRESS,
     CHOP_VEG_PROGRESS,
@@ -227,6 +228,7 @@ class LiveMettaGridEpisode:
         tokens: list[str],
         player_names: list[str],
         planner: LlmPlanner | None = None,
+        prompt_selection: PromptSelection = CANONICAL_SELECTION,
         process_start: float | None = None,
         disconnect_exception_types: tuple[type[Exception], ...] = (RuntimeError,),
         request_shutdown: Callable[[], None] = lambda: None,
@@ -234,6 +236,7 @@ class LiveMettaGridEpisode:
         self.sim = sim
         self.policy_env = policy_env
         self.config = config
+        self.prompt_selection = prompt_selection
         self.tokens = list(tokens)
         self.process_start = process_start if process_start is not None else time.monotonic()
         self.disconnect_exception_types = disconnect_exception_types
@@ -317,6 +320,7 @@ class LiveMettaGridEpisode:
         tokens: list[str],
         player_names: list[str],
         planner: LlmPlanner | None = None,
+        prompt_selection: PromptSelection = CANONICAL_SELECTION,
         process_start: float | None = None,
         disconnect_exception_types: tuple[type[Exception], ...] = (RuntimeError,),
         request_shutdown: Callable[[], None] = lambda: None,
@@ -329,6 +333,7 @@ class LiveMettaGridEpisode:
             tokens=tokens,
             player_names=player_names,
             planner=planner,
+            prompt_selection=prompt_selection,
             process_start=process_start,
             disconnect_exception_types=disconnect_exception_types,
             request_shutdown=request_shutdown,
@@ -663,14 +668,17 @@ class LiveMettaGridEpisode:
             LAYOUT_LINES.get(self.config.layout, ""),
             self.config.plan_interval_steps,
             seat.prompt,
+            selection=self.prompt_selection,
         )
+        user = build_user_message(view)
         return PlanRequest(
             slot=seat.slot,
             alias=seat.alias,
             system=system,
-            user=build_user_message(view),
+            user=user,
             legal_stations=view["legal_stations"],
             ally_aliases=[s.alias for s in self.seats if s.slot != seat.slot] + ["none"],
+            prompt_template=self.prompt_selection.metadata(system, user),
         )
 
     def _seat_view(self, seat: Seat) -> dict[str, Any]:

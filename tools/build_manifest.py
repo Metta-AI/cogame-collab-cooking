@@ -127,6 +127,13 @@ def config_schema() -> dict:
             "num_agents": {"type": "integer", "minimum": NUM_AGENTS, "maximum": NUM_AGENTS},
             "layout": {"type": "string", "enum": list(LAYOUT_NAMES)},
             "seed": {"type": "integer", "minimum": 0},
+            "promptVariant": {
+                "type": "string", "default": "canonical",
+                "enum": ["canonical", "plain", "numbered", "questions", "reordered",
+                         "heldout-briefing", "heldout-reference", "mixed"],
+                "description": "Episode-stable wording; mixed requires an independent promptSeed.",
+            },
+            "promptSeed": {"type": "integer", "minimum": 0},
             "max_steps": {"type": "integer", "minimum": 1, "maximum": 2000},
             "step_seconds": {"type": "number", "minimum": 0.01, "maximum": 1.0},
             "policy_action_timeout_seconds": {"type": "number", "minimum": 0.01, "maximum": 5.0},

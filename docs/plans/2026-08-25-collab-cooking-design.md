@@ -528,7 +528,8 @@ chopped veg as a salad -> carry it to the pass and serve it against a live ticke
 comes back dirty and needs 3 uses at the sink.
 YOU CAN CARRY EXACTLY ONE THING. Counters (the walls) hold one item each: put your item down
 and a team-mate can pick it up. That is often faster than walking round.
-Your score and everyone else's is the same number: dishes the team serves. Nothing else scores.
+Your score is the team's dishes served plus 0.01 times the dishes you personally delivered.
+Maximize team dishes first; your deliveries break ties. No other activity scores.
 Kitchen: {layout} - {layout_line}
 You give one standing order; a controller walks you there tick by tick until your next order,
 about 50 ticks from now.
