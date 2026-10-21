@@ -4,7 +4,8 @@ dist
 docs
 scripts
 tests
-tools
+tools/*
+!tools/install_native_toolchain.sh
 **/__pycache__
 *.pyc
 nim.cfg

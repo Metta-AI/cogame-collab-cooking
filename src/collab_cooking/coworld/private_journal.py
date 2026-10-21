@@ -17,7 +17,8 @@ from .plan_protocol import DirectiveInstalled, PhysicalObservation, PlanWindow, 
 
 class SourceIdentity(PrivateModel):
     episode_id: str = Field(min_length=1)
-    source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    # The runner may supply a source locator or local image tag, not a commit pin.
+    source_revision: str | None = Field(default=None, min_length=1)
     game_version: str | None = Field(default=None, min_length=1)
     image_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
 

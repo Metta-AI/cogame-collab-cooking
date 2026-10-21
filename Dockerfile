@@ -8,7 +8,8 @@
 # is architecture-independent. tools/build_replay_viewer.sh builds THIS target
 # and copies /workspace/replay-viewer/dist out as the bundle.
 #
-# Stage 2 is the runtime and the DEFAULT target: python:3.12-slim +
+# Stage 2 builds MettaGrid from source with Bazel and Nim.
+# Stage 3 is the runtime and the DEFAULT target: python:3.12-slim +
 # `pip install .`, plus the shims tools/ci/docker_smoke.sh drives
 # unmodified. It does NOT depend on the wasm stage -- the replay is a static
 # bundle served by the platform, never a route on this container, so the game
@@ -78,6 +79,14 @@ RUN nim c --hints:off -d:emscripten replay-viewer/collab_cooking_replay.nim && \
   ! grep -Eq 'src="/[^/]' replay-viewer/dist/index.html
 
 
+# Build the source-only MettaGrid dependency without shipping its toolchains.
+FROM docker.io/library/python:3.12-slim AS native-builder
+COPY tools/install_native_toolchain.sh /tmp/install_native_toolchain.sh
+RUN /tmp/install_native_toolchain.sh
+ENV CI=true
+RUN ln -s /usr/local/bin/python3 /usr/bin/python3 && \
+  pip wheel --no-deps --wheel-dir /wheels mettagrid==0.26.15
+
 # ---------------------------------------------------------------------------
 FROM docker.io/library/python:3.12-slim AS game
 
@@ -86,7 +95,8 @@ WORKDIR /app
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
-RUN pip install --no-cache-dir .
+COPY --from=native-builder /wheels /wheels
+RUN pip install --no-cache-dir --find-links=/wheels .
 
 # The shims tools/ci/docker_smoke.sh and the manifest runnables invoke.
 RUN printf '#!/bin/sh\nexec python -m collab_cooking.coworld.server "$@"\n' > /bin/collab-cooking && \

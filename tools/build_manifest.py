@@ -57,7 +57,7 @@ BUNDLED_PLAYERS = [
         "id": "collab-prompt",
         "name": "Reference prompt",
         "description": "The reference prompt policy: an LLM shift order every 50 ticks.",
-        "env": {"PLAYER_PROMPT": REFERENCE_PROMPT},
+        "env": {"PLAYER_PROMPT": REFERENCE_PROMPT, "COWORLD_LLM_ENABLED": "true"},
     },
     {
         "id": "brigade",

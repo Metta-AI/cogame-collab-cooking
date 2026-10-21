@@ -34,6 +34,10 @@ and the game grants a private window for one **shift order** every 50 ticks.
 The platform-hosted player calls its native sidecar; direct provider endpoints
 and credential fallback paths are removed:
 
+The bundled prompt player declares `COWORLD_LLM_ENABLED=true` so hosted execution
+attaches that sidecar. Local Docker certification must supply a sidecar endpoint;
+it cannot certify the prompt seat without one. Scripted seats do not require it.
+
 ```json
 {"station":"chop","recipe":"soup","zone":"left","handoff":"Cog-D","yield_to":"none",
  "say":"I'll keep the board fed, D takes the middle counter","note":"A keeps forgetting plates."}

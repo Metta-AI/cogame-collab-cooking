@@ -146,3 +146,7 @@ and simulator. The wording bank varies the dish chain, handoffs, and work cadenc
 recipe values, scoring, and response requirements remain fixed.
 Existing hosted transport tests cover request formatting and seat attribution.
 These checks do not establish native timing parity or learned robustness.
+
+Private evidence retains the runner's exact source identity. Local image tags and
+branch URLs are valid raw SDK provenance but do not establish an immutable commit.
+Use a tested commit and digest-pinned image for qualified research data.
