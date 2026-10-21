@@ -49,7 +49,7 @@ def document(tmp_path_factory) -> dict:
             plan_interval_steps=60,
             min_plan_interval_seconds=0.0,
         ),
-        # A prompt seat with no credentials contributes `fallback` events: the
+        # A native seat with an unreachable diagnostic endpoint contributes `fallback` events: the
         # replay carries events the sim cannot produce as well as those it can,
         # and the re-derivation has to keep them apart.
         [
@@ -66,9 +66,7 @@ def document(tmp_path_factory) -> dict:
 def rebuild(document: dict) -> replay_mod.ReplayWriter:
     """Replay the recorded actions through a fresh sim, recording as we go."""
     config = document["config"]
-    env = make_kitchen_mission(
-        config["layout"], config["max_steps"], num_agents=config["num_agents"]
-    )
+    env = make_kitchen_mission(config["layout"], config["max_steps"], num_agents=config["num_agents"])
     sim = Simulator().new_simulation(env, seed=document["seed"])
     num_agents = int(config["num_agents"])
     aliases = [seat["alias"] for seat in document["seats"]]

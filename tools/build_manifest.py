@@ -57,7 +57,7 @@ BUNDLED_PLAYERS = [
         "id": "collab-prompt",
         "name": "Reference prompt",
         "description": "The reference prompt policy: an LLM shift order every 50 ticks.",
-        "env": {"PLAYER_PROMPT": REFERENCE_PROMPT},
+        "env": {"PLAYER_PROMPT": REFERENCE_PROMPT, "COWORLD_LLM_ENABLED": "true"},
     },
     {
         "id": "brigade",
@@ -128,9 +128,18 @@ def config_schema() -> dict:
             "layout": {"type": "string", "enum": list(LAYOUT_NAMES)},
             "seed": {"type": "integer", "minimum": 0},
             "promptVariant": {
-                "type": "string", "default": "canonical",
-                "enum": ["canonical", "plain", "numbered", "questions", "reordered",
-                         "heldout-briefing", "heldout-reference", "mixed"],
+                "type": "string",
+                "default": "canonical",
+                "enum": [
+                    "canonical",
+                    "plain",
+                    "numbered",
+                    "questions",
+                    "reordered",
+                    "heldout-briefing",
+                    "heldout-reference",
+                    "mixed",
+                ],
                 "description": "Episode-stable wording; mixed requires an independent promptSeed.",
             },
             "promptSeed": {"type": "integer", "minimum": 0},
@@ -158,8 +167,6 @@ def config_schema() -> dict:
             "soup_burn_ticks": {"type": "integer", "minimum": 1, "maximum": 100},
             "fries_cook_ticks": {"type": "integer", "minimum": 1, "maximum": 100},
             "fries_burn_ticks": {"type": "integer", "minimum": 1, "maximum": 100},
-            "model": {"type": "string"},
-            "max_output_tokens": {"type": "integer", "minimum": 64, "maximum": 4096},
         },
     }
 
@@ -179,10 +186,28 @@ def results_schema() -> dict:
         "type": "object",
         "additionalProperties": False,
         "required": [
-            "game", "protocol", "reason", "layout", "steps", "dishes", "scores",
-            "delivered", "served_by_recipe", "orders_arrived", "orders_expired",
-            "burned", "blocked_moves", "handoffs", "names", "aliases",
-            "seat_kinds", "cross_play", "disconnected", "fallbacks", "action_fallbacks", "llm_requests",
+            "game",
+            "protocol",
+            "reason",
+            "layout",
+            "steps",
+            "dishes",
+            "scores",
+            "delivered",
+            "served_by_recipe",
+            "orders_arrived",
+            "orders_expired",
+            "burned",
+            "blocked_moves",
+            "handoffs",
+            "names",
+            "aliases",
+            "seat_kinds",
+            "cross_play",
+            "disconnected",
+            "fallbacks",
+            "action_fallbacks",
+            "llm_requests",
         ],
         "properties": {
             "game": {"type": "string", "const": GAME_NAME},
@@ -285,9 +310,7 @@ def docs() -> dict:
         ("protocol", "Protocol"),
     ):
         body = (ROOT / "docs" / f"{page_id}.md").read_text(encoding="utf-8")
-        pages.append(
-            {"id": page_id, "title": title, "content": {"type": "text", "value": body}}
-        )
+        pages.append({"id": page_id, "title": title, "content": {"type": "text", "value": body}})
     return {"readme": {"type": "text", "value": readme}, "pages": pages}
 
 
@@ -309,6 +332,7 @@ def manifest() -> dict:
         "episode_timeout_minutes": 20,
         "game": {
             "name": GAME_NAME,
+            "player_runtime": "platform-hosted",
             # `coworld build` validates this file with its own loader before it
             # touches docker, and the top level is `extra="forbid"`: the ONLY
             # place `replay_viewer` is read from is `game` (bundle.py:81,

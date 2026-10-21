@@ -8,16 +8,23 @@ latency, retry and rate-budget effects are measured separately by the hosted pat
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import hashlib
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from collab_cooking.coworld import replay
 from collab_cooking.coworld.live_episode import EpisodeConfig, LiveMettaGridEpisode
-from collab_cooking.coworld.plans import ParsedPlan, parse_plan
-from collab_cooking.coworld.player import Seat as PlayerSeat
+from collab_cooking.coworld.macro_executor import MacroExecutor
+from collab_cooking.coworld.plan_protocol import (
+    DirectiveInstalled,
+    NativeProfile,
+    PhysicalAction,
+    PhysicalObservation,
+    PlanControl,
+)
+from collab_cooking.coworld.plans import parse_plan
 from collab_cooking.coworld.prompts import HELDOUT_VARIANTS, PromptSelection
 from collab_cooking.coworld.results import seat_scores
 from collab_cooking.missions.kitchen import mission_for_config
@@ -30,17 +37,30 @@ class PlanBridge:
             next(v["game_config"] for v in manifest["variants"] if v["id"] == variant)
         )
         self.decision_id = 0
-        self.pending: list[ParsedPlan] = []
-        self.players: list[PlayerSeat] = []
+        self.pending: list[PlanControl] = []
+        self.players: list[MacroExecutor] = []
 
     def advance(self):
         episode = self.episode
         while episode.sim.current_step < self.config.max_steps and not episode.sim.is_done():
             step = int(episode.sim.current_step)
-            actions = [
-                player.act(episode.observation_message(slot)["observation"])[0]
-                for slot, player in enumerate(self.players)
-            ]
+            actions = []
+            for slot, player in enumerate(self.players):
+                observation = PhysicalObservation(
+                    request_id=uuid4(),
+                    slot=slot,
+                    step=step,
+                    observation=episode.private_observation(slot),
+                )
+                player.issue(observation)
+                control = player.admit(
+                    PhysicalAction(
+                        request_id=observation.request_id,
+                        slot=slot,
+                        action_name=player.expected,
+                    )
+                )
+                actions.append(control.installed_action)
             for slot, action in enumerate(actions):
                 episode.sim.agent(slot).set_action(action)
             episode.sim.step()
@@ -53,7 +73,7 @@ class PlanBridge:
             episode._update_prompt_memory()
             if step % self.config.plan_interval_steps == 0:
                 episode.turn += 1
-                self.requests = [episode._plan_request(seat) for seat in episode.seats]
+                self.requests = [episode.private_window(seat.slot, NativeProfile()) for seat in episode.seats]
                 self.views = [episode._seat_view(seat) for seat in episode.seats]
                 return self.observation()
         return {
@@ -64,7 +84,10 @@ class PlanBridge:
     def observation(self):
         seat = len(self.pending)
         request = self.requests[seat]
-        view = {**self.views[seat], "prompt_template": request.prompt_template}
+        view = {
+            **self.views[seat],
+            "prompt_template": self.episode.prompt_selection.metadata(request.system, request.user),
+        }
         return {
             "kind": "decision",
             "game": "collab-cooking",
@@ -116,8 +139,7 @@ class PlanBridge:
                 for slot, seat in enumerate(self.episode.seats):
                     seat.kind = "prompt"
                     seat.connected = seat.ever_connected = seat.registered = True
-                    player = PlayerSeat()
-                    player.configure(self.episode.player_config_message(slot, f"training-{slot}"), "brigade")
+                    player = MacroExecutor(self.episode.policy_env, slot, self.config.layout, "brigade")
                     self.players.append(player)
                 self.episode.state = replay.capture(self.episode.sim, 4)
                 self.decision_id = 0
@@ -155,12 +177,18 @@ class PlanBridge:
                         seat = self.episode.seats[slot]
                         seat.say, seat.note = queued.say, queued.note
                         seat.last_order = f"station={queued.station} recipe={queued.recipe} zone={queued.zone} handoff={queued.handoff}"
-                        self.players[slot].apply_plan(
-                            {**dataclasses.asdict(queued), "turn": self.episode.turn, "src": "llm"}
+                        self.players[slot].install(
+                            DirectiveInstalled(
+                                window_id=self.requests[slot].window_id,
+                                slot=slot,
+                                turn=self.episode.turn,
+                                plan=queued,
+                                cause="accepted",
+                            )
                         )
                     self.pending = []
                     observation = self.advance()
-                return {"kind": "accepted", "action": dataclasses.asdict(plan), "observation": observation}
+                return {"kind": "accepted", "action": plan.model_dump(mode="json"), "observation": observation}
             case _:
                 raise ValueError("unknown bridge command")
 

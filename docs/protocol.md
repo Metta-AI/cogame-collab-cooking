@@ -1,91 +1,69 @@
-# Player protocol -- `collab-cooking.player.v1`
+# Player protocol — `collab-cooking.player.v2`
 
-JSON text frames over `WS /player?slot=N&token=T`. A bad slot or token closes with 1008.
+JSON frames use the assigned `COWORLD_PLAYER_WS_URL`: `/player?slot=N&token=T`.
+Authentication binds one connection to its assigned slot. Frames are bounded to 16 MiB.
+The source types in `plan_protocol.py` define the exact protocol; unknown fields are rejected.
 
-## game -> player, on connect: `player_config`
-
-```json
-{"type":"player_config","protocol":"collab-cooking.player.v1","slot":2,
- "connection_id":"player-2","num_agents":4,
- "action_names":["noop","move_north","move_south","move_west","move_east"],
- "observation_shape":[500,3],"policy_env":{…},"observation":{…},"control_state":{…},
- "alias":"Cog-C","layout":"forced","max_steps":900}
-```
-
-`policy_env` and `observation` carry the mettagrid feature and tag tables, which is everything a
-policy needs to decode the token array.
-
-## player -> game, once immediately after connect: `register`
+The game sends `player_config` with the slot, anonymous alias, layout, and actual
+`policy_env` feature/action tables. Register once, before any observation:
 
 ```json
-{"type":"register","kind":"prompt","prompt":"<= 1200 runes"}
-{"type":"register","kind":"scripted","baseline":"brigade"}
-{"type":"register","kind":"external"}
+{"type":"register","protocol":"collab-cooking.player.v2","kind":"native","slot":2,
+ "prompt":"raw standing orders","profile":{"model":"anthropic/claude-haiku-4.5",
+ "max_tokens":900,"temperature":1.0,"top_p":1}}
+{"type":"register","protocol":"collab-cooking.player.v2","kind":"scripted","slot":2,"baseline":"brigade"}
+{"type":"register","protocol":"collab-cooking.player.v2","kind":"external","slot":2}
 ```
 
-An unknown baseline, a malformed frame, or no registration within 5 s of connect is treated as
-`{"kind":"scripted","baseline":"brigade"}` -- never a disconnect.
-An `external` seat makes its own decisions over the same observation and action
-frames as every other seat. The game does not plan or call a model for it.
+Strategy whitespace is preserved. Profiles freeze before the first private window.
+Duplicate, late, and wrong-seat registrations are rejected. Registration records
+player inputs; it does not establish model or checkpoint identity.
 
-## game -> player, every tick: `observation`
+Native players call only their injected `COWORLD_LLM_ENDPOINT`, with authenticated
+player-slot attribution. A missing endpoint is an error, with no provider credential
+fallback. Temperature 1/top-p 1 is an explicit native profile; previous calls omitted
+these controls. Profiles may declare temperature 0–1 and an output budget up to 4096.
+
+Every physical tick carries an engine-issued observation UUID:
 
 ```json
-{"type":"observation","protocol":"collab-cooking.player.v1","slot":2,"step":350,
- "observation":[[loc,feature,value], …],"scores":[…],"control_state":{…}}
+{"type":"observation","protocol":"collab-cooking.player.v2","request_id":"<uuid>",
+ "slot":2,"step":350,"observation":[[0,1,2]]}
+{"type":"action","protocol":"collab-cooking.player.v2","request_id":"<same uuid>",
+ "slot":2,"action_name":"move_north"}
 ```
 
-The raw mettagrid token array for that agent: its egocentric window centred on the cog, its own
-inventory tokens, and the global `local_position` / `last_action_move` tokens. Terrain, objects
-and **each station's inventory** are visible inside the window; everything outside it is not, and
-other cogs' inventories are not (mettagrid publishes an agent's inventory tokens only at its own
-centre).
+These are actual private engine tokens, including visible teammate inventory.
+Unseen inventories, spectator heat, and unseen board updates are unavailable.
+The game independently runs the shipped controller on the same issued tokens.
+For native/scripted containers, a different submitted control becomes `noop`.
+External research controllers may submit any legal physical action; they receive
+no native macro or teacher authority. Missing and stale actions become `noop`.
 
-## game -> player, at most once per plan turn, prompt seats only: `plan`
+Native plan turns retain the simultaneous batch, 50-tick and 10-second minimum
+cadence, shared 26-request/minute budget, 12-second batch deadline, and one retry.
+`plan_grant` contains the immutable private `window`, attempt UUID/index,
+source-rendered user message, and remaining timeout. Each retry requires a
+source-observed rejection and consumes the same shared budget.
 
-```json
-{"type":"plan","protocol":"collab-cooking.player.v1","turn":7,"step":350,
- "station":"chop","recipe":"soup","zone":"left","handoff":"Cog-D","yield_to":"none",
- "say":"I'll keep the board fed, D takes the middle counter","note":"","src":"llm"}
-```
+The player sends coalesced `plan_progress` with actual received native facts:
+original request/endpoint, raw body bytes, normalized headers, HTTP status,
+completion and reader-join state, served model, and sampling evidence when present.
+A `plan_reply` separately carries the received text and submitted parsed directive.
+The game checks the actual response against these facts and independently applies
+its ordinary parser. The player cannot invent a teacher origin or serving receipt.
 
-`src` is `"llm"` or `"fallback:<cause>"`; a fallback carries an empty `station`, which means "drop
-the directive and run your baseline". Scripted seats never receive this message.
-External seats never receive it either.
+Only the game sends `plan_installed`, naming the window, seat, turn, parsed plan,
+and rejection cause. Installation affects subsequent controller ticks; it is not
+an immediate physical effect. `note` remains private; `say` enters team radio
+and the public replay. Physical application is read back from actual engine buffers.
 
-## player -> game, every tick: `action`
+At termination, the game closes call/action admission and sends `stop` with a
+fresh UUID. Players join their native readers, publishers, and writers under
+one absolute cleanup deadline before sending `stopped` with the same UUID and
+`joined:true`. Explicitly unresolved evidence denies that acknowledgement.
+The game returns `evidence_received` for the same UUID. The bundled player then
+closes its owned socket; EOF before that receipt is an error.
 
-```json
-{"type":"action","action_name":"move_north",
- "policy_infos":{"policy_name":"Cog-C","task":"chop veg"},"request_id":"step-350"}
-```
-
-An action whose `request_id` is not this step is treated as `noop`.
-
-## game -> player, once at the end: `final`
-
-```json
-{"type":"final","done":true,"reason":"complete","scores":[…],"dishes":37,
- "names":[…],"aliases":[…], …}
-```
-
-After which the player exits 0. The player's receive loop catches every connection error and
-still exits 0: the game's own shutdown can outrun the flushed final frame, and a non-zero player
-exit fails the episode.
-
-## Action failure attribution
-
-Final results include one `action_fallbacks` object per seat. Each applied tick
-fallback increments exactly one of `invalid_action`, `deadline`, or `disconnected`.
-A legal `noop` is a valid action and increments none. Unknown action names,
-out-of-range indices, and actions without a name or index count as invalid when
-submitted for the expected step. An action with a stale request ID counts as a
-missed deadline. A seat with no active connection counts as disconnected.
-Each applied fallback also records an `action_fallback` replay event with slot,
-step, and cause. These counters are independent of game-side LLM plan fallbacks.
-
-`malformed_frame` counts rejected protocol frames separately. A rejected frame
-can also leave that step without a valid action; do not sum this counter with
-applied tick fallback counts. These receipts distinguish player action failures
-from game infrastructure failures; they do not identify why a player missed its
-deadline.
+Unsettled ownership cannot produce a completed private episode or public result.
+Historical v1 archives remain stored artifacts; v1 is no longer a live wire.

@@ -36,13 +36,14 @@ const params = new URLSearchParams(window.location.search);
 document.getElementById("slot").textContent = "seat " + (params.get("slot") ?? "—");
 document.getElementById("status").textContent = params.has("token") ? "token supplied" : "no token";
 document.getElementById("detail").textContent = [
-  "protocol   collab-cooking.player.v1",
-  "connect    WS /player?slot=<n>&token=<t>",
-  "register   {\"type\":\"register\",\"kind\":\"prompt\",\"prompt\":\"…\"}",
-  "           {\"type\":\"register\",\"kind\":\"scripted\",\"baseline\":\"brigade\"}",
-  "every tick {\"type\":\"action\",\"action_name\":\"move_north\",\"request_id\":\"step-<t>\"}",
-  "plan turns {\"type\":\"plan\", station/recipe/zone/handoff/yield_to/say/src}",
-  "end        {\"type\":\"final\", reason/scores/dishes/names/aliases}",
+  "protocol   collab-cooking.player.v2",
+  "connect    Assigned COWORLD_PLAYER_WS_URL",
+  "register   Native profile or scripted baseline, assigned slot, once before observation",
+  "every tick Echo engine-issued observation UUID with one physical action",
+  "native     Call injected sidecar only after an immutable plan_grant",
+  "plans      Game verifies received text, parses independently, then sends plan_installed",
+  "stop       Join native readers/writers; acknowledge matching stop UUID",
+  "end        Exit after matching evidence_received; premature EOF is an error",
 ].join("\n");
 </script>
 </body>

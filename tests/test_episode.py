@@ -45,12 +45,7 @@ def test_a_complete_episode_writes_both_artifacts(tmp_path: Path) -> None:
 
     # Dishes recomputed independently from the serve events must equal
     # results.dishes -- the two are derived by different code paths.
-    serves = sum(
-        1
-        for tick in replay["ticks"]
-        for event in tick.get("ev", [])
-        if event["ev"] == "serve"
-    )
+    serves = sum(1 for tick in replay["ticks"] for event in tick.get("ev", []) if event["ev"] == "serve")
     assert serves == results["dishes"]
     assert results["dishes"] == sum(results["delivered"])
     # And every seat's own serve count matches its delivered entry.
@@ -79,12 +74,7 @@ def test_a_nine_hundred_tick_episode_runs_to_completion(tmp_path: Path) -> None:
 
     replay = json.loads(out["replay_bytes"].decode("utf-8"))
     assert len(replay["ticks"]) == 900
-    arrivals = [
-        event
-        for tick in replay["ticks"]
-        for event in tick.get("ev", [])
-        if event["ev"] == "order_arrive"
-    ]
+    arrivals = [event for tick in replay["ticks"] for event in tick.get("ev", []) if event["ev"] == "order_arrive"]
     # The design pins ~50 tickets in a 900-tick episode (one every 18 ticks);
     # the slot pool recycles under them, so the count must not sag with it.
     assert len(arrivals) == 50
@@ -163,7 +153,9 @@ def test_a_paused_episode_still_settles_at_the_deadline(tmp_path: Path) -> None:
 
 def test_no_players_writes_zeroed_results_and_exits_zero(tmp_path: Path) -> None:
     config = fast_cert_config(
-        max_steps=120, step_seconds=0.0, shutdown_grace_seconds=0.0,
+        max_steps=120,
+        step_seconds=0.0,
+        shutdown_grace_seconds=0.0,
         player_connect_timeout_seconds=0.2,
     )
     out = run_episode(config, [], tmp_path, connect=False)
@@ -175,26 +167,30 @@ def test_no_players_writes_zeroed_results_and_exits_zero(tmp_path: Path) -> None
     assert out["replay_bytes"], "a no_players episode still writes a replay"
 
 
-def test_a_prompt_seat_with_no_credentials_falls_back_and_still_completes(tmp_path: Path) -> None:
+def test_an_unreachable_native_endpoint_keeps_scripted_physics_and_records_transport_fallback(tmp_path: Path) -> None:
     out = run_episode(
-        fast_cert_config(max_steps=180, step_seconds=0.0, shutdown_grace_seconds=0.0,
-                         player_connect_timeout_seconds=2, plan_interval_steps=50),
-        [prompt_registration(), scripted_registration("brigade"),
-         scripted_registration("passer"), scripted_registration("courier")],
+        fast_cert_config(
+            max_steps=180,
+            step_seconds=0.0,
+            shutdown_grace_seconds=0.0,
+            player_connect_timeout_seconds=2,
+            plan_interval_steps=50,
+        ),
+        [
+            prompt_registration(),
+            scripted_registration("brigade"),
+            scripted_registration("passer"),
+            scripted_registration("courier"),
+        ],
         tmp_path,
     )
     results = out["results"]
     assert results["reason"] == "complete"
-    assert results["llm_requests"] == 0, "no credentials means zero network calls"
+    assert results["llm_requests"] > 0, "issued native calls are retained despite observed connection refusal"
     assert results["fallbacks"][0] > 0
     replay = json.loads(out["replay_bytes"].decode("utf-8"))
-    causes = {
-        event["cause"]
-        for tick in replay["ticks"]
-        for event in tick.get("ev", [])
-        if event["ev"] == "fallback"
-    }
-    assert causes == {"disabled"}
+    causes = {event["cause"] for tick in replay["ticks"] for event in tick.get("ev", []) if event["ev"] == "fallback"}
+    assert causes == {"transport"}
 
 
 def test_the_certification_fixture_settles_well_inside_the_certify_timeout(tmp_path: Path) -> None:
@@ -224,24 +220,30 @@ def test_every_player_saw_the_final_frame(tmp_path: Path) -> None:
 
 
 def test_action_fallbacks_distinguish_policy_errors_from_missing_actions(monkeypatch, tmp_path: Path) -> None:
+    from uuid import uuid4
+
     from tests.harness import FakeSocket
 
     ordinary_send = FakeSocket.send_json
 
-    async def controlled_send(socket: FakeSocket, message: dict) -> None:
-        if message["type"] != "observation":
-            await ordinary_send(socket, message)
+    async def controlled_send(socket: FakeSocket, data: dict) -> None:
+        if data["type"] != "observation":
+            await ordinary_send(socket, data)
             return
-        slot = socket.seat.slot
-        if slot == 3:
-            socket.episode.disconnect_player(socket.connection_id)
+        assert socket.configuration is not None
+        slot = socket.configuration.slot
+        if slot in {0, 3}:
+            await ordinary_send(socket, data)
             return
+        assert socket.episode is not None
         await socket.episode.handle_player_message(
             socket.connection_id,
             {
                 "type": "action",
+                "protocol": "collab-cooking.player.v2",
+                "slot": slot,
                 "action_name": "not-a-legal-action" if slot == 1 else "noop",
-                "request_id": "step--1" if slot == 2 else f"step-{message['step']}",
+                "request_id": str(uuid4()) if slot == 2 else data["request_id"],
             },
         )
 
@@ -256,15 +258,18 @@ def test_action_fallbacks_distinguish_policy_errors_from_missing_actions(monkeyp
     schema = manifest["game"]["results_schema"]
     assert set(out["results"]) == set(schema["properties"]) == set(schema["required"])
     counts = out["results"]["action_fallbacks"]
-    assert counts == [
-        {"invalid_action": 0, "deadline": 0, "disconnected": 0, "malformed_frame": 0},
-        {"invalid_action": 6, "deadline": 0, "disconnected": 0, "malformed_frame": 0},
-        {"invalid_action": 0, "deadline": 6, "disconnected": 0, "malformed_frame": 0},
-        {"invalid_action": 0, "deadline": 0, "disconnected": 6, "malformed_frame": 0},
-    ]
+    assert counts[0] == counts[3] == {"invalid_action": 0, "deadline": 0, "disconnected": 0, "malformed_frame": 0}
+    assert counts[1] == {
+        "invalid_action": 0,
+        "deadline": 0,
+        "disconnected": 0,
+        "malformed_frame": 0,
+        "executor_mismatch": 6,
+    }
+    assert counts[2] == {"invalid_action": 0, "deadline": 6, "disconnected": 0, "malformed_frame": 6}
     replay = json.loads(out["replay_bytes"])
     events = [
         event for tick in replay["ticks"] if "ev" in tick for event in tick["ev"] if event["ev"] == "action_fallback"
     ]
-    assert len(events) == 18
-    assert {event["cause"] for event in events} == {"invalid_action", "deadline", "disconnected"}
+    assert len(events) == 12
+    assert {event["cause"] for event in events} == {"executor_mismatch", "deadline"}
