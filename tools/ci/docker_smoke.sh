@@ -38,9 +38,8 @@
 #                              job loads it in a real browser -- that is the
 #                              only replay in CI that is known to be readable
 #                              by this game's own viewer.
-#   ANTHROPIC_API_KEY          if set, forwarded to the game so the LLM path
-#                              is exercised; if unset the game must fall back
-#                              to its scripted baselines and still complete
+#   SMOKE_KEEP_WORK_DIR       1 retains the per-run artifacts (default 0)
+# Prompt seats use a diagnostic loopback HTTP fixture, never provider credentials.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,7 +68,11 @@ seats=0
 cleanup() {
   docker ps -aq --filter "name=${prefix}" | xargs -r docker rm -f >/dev/null 2>&1 || true
   docker network rm "${network}" >/dev/null 2>&1 || true
-  rm -rf "${work_dir}"
+  if [[ "${SMOKE_KEEP_WORK_DIR:-0}" != 1 ]]; then
+    rm -rf "${work_dir}"
+  else
+    echo "Retained smoke artifacts: ${work_dir}"
+  fi
 }
 trap cleanup EXIT
 
@@ -171,6 +174,10 @@ for slot in range(seats):
     for kv in extra_env:
         env_args += ["-e", kv]
     argv = list(entry.get("run") or [player_bin])
+    if entry["env"].get("PLAYER_PROMPT"):
+        env_args += ["-e", "COWORLD_LLM_ENDPOINT=http://127.0.0.1:18772",
+                     "-e", "COWORLD_LLM_MODEL=diagnostic-http-fixture"]
+        argv = ["python", "/native_sidecar_fixture.py"]
     with open(os.path.join(work, f"env-{slot}.args"), "w") as fh:
         fh.write(" ".join(shlex.quote(a) for a in env_args))
     with open(os.path.join(work, f"cmd-{slot}.args"), "w") as fh:
@@ -190,14 +197,6 @@ chmod 777 "${work_dir}"
 # --------------------------------------------------------------------------
 docker network create "${network}" >/dev/null
 
-game_env=()
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  game_env+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
-  echo "ANTHROPIC_API_KEY present: the LLM path will be exercised"
-else
-  echo "no ANTHROPIC_API_KEY: the game must complete on its scripted baselines"
-fi
-
 echo "starting game container (${image} ${game_bin}) ..."
 docker run -d --name "${prefix}-game" \
   --network "${network}" --network-alias "${prefix}-game" \
@@ -207,7 +206,8 @@ docker run -d --name "${prefix}-game" \
   -e COGAME_RESULTS_URI=file:///coworld/results.json \
   -e COGAME_SAVE_REPLAY_URI=file:///coworld/replay.json \
   -e COGAME_PLAYER_FAILURE_URI=file:///coworld/player_failure.json \
-  ${game_env[@]+"${game_env[@]}"} \
+  -e COWORLD_EPISODE_ID="${prefix}" \
+  -e COWORLD_SOURCE_REVISION="$(git -C "${repo_dir}" rev-parse HEAD)" \
   -v "${work_dir}:/coworld:rw" \
   "${image}" "${game_bin}" >/dev/null
 
@@ -243,6 +243,7 @@ for ((slot = 0; slot < seats; slot++)); do
   eval "pcmd=( $(cat "${work_dir}/cmd-${slot}.args") )"
   docker run -d --name "${prefix}-p${slot}" --network "${network}" \
     -e COWORLD_PLAYER_WS_URL="ws://${prefix}-game:${port}/player?slot=${slot}&token=token-${slot}" \
+    -v "${script_dir}/native_sidecar_fixture.py:/native_sidecar_fixture.py:ro" \
     ${penv[@]+"${penv[@]}"} \
     "${image}" ${pcmd[@]+"${pcmd[@]}"} >/dev/null
 done
