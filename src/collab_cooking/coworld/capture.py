@@ -29,12 +29,16 @@ def write_capture(episode, results: dict) -> None:
         receipts = [] if episode.planner is None else episode.planner.evidence.get(request.decision_id, [])
         attempts = []
         selected = None
+        displaced = False
         for raw in receipts:
             receipt = dict(raw)
-            receipt["accepted"] = bool(receipt.get("accepted") and row["status"] == "accepted")
+            matches_applied = receipt.get("parsed_action") == row["action"]
+            if receipt.get("accepted") and row["status"] == "accepted" and not matches_applied:
+                displaced = True
+                receipt["rejection_reason"] = "parsed proposal differs from the applied plan"
+            receipt["accepted"] = bool(receipt.get("accepted") and row["status"] == "accepted" and matches_applied)
             if receipt["accepted"]:
                 selected = receipt["attempt_id"]
-                receipt["parsed_action"] = row["action"]
             elif not receipt.get("rejection_reason"):
                 receipt["rejection_reason"] = "response was not applied before episode/plan deadline"
             attempts.append(DecisionAttempt.model_validate(receipt))
@@ -49,7 +53,7 @@ def write_capture(episode, results: dict) -> None:
                 attempts=attempts,
                 selected_attempt_id=selected,
                 executed_action=row["action"],
-                action_status=row["status"],
+                action_status="rejected" if displaced and selected is None else row["status"],
                 fallback_origin="player_scripted" if row["status"] == "fallback" else None,
             )
         )
