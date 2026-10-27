@@ -169,7 +169,7 @@ class _Transport:
             }
         if self.kind == "sidecar":
             headers["X-Coworld-Player-Slot"] = str(slot)
-        evidence: dict[str, Any] = {"request": body, "model": self.model}
+        evidence: dict[str, Any] = {"request": body, "model": self.model, "decoder": {"max_tokens": max_tokens}}
         self.local.evidence = evidence
         request = urllib.request.Request(  # noqa: S310 - fixed https endpoints
             url, data=json.dumps(body).encode("utf-8"), method="POST", headers=headers
@@ -192,6 +192,7 @@ class _Transport:
             raise RuntimeError(f"{type(exc).__name__}: {exc}") from exc
         self.local.evidence.update(
             {
+                "model": payload.get("model") or self.model,
                 "stop_reason": payload.get("stop_reason"),
                 "input_tokens": (payload.get("usage") or {}).get("input_tokens"),
                 "output_tokens": (payload.get("usage") or {}).get("output_tokens"),
