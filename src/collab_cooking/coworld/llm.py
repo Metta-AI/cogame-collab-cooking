@@ -7,6 +7,7 @@ The game owns parallel dispatch, retries, and its scripted fallback.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
+from uuid import uuid4
 
 from collab_cooking.coworld.plans import (
     ERROR_RUNES,
@@ -50,6 +52,7 @@ class PlanRequest:
     legal_stations: list[str]
     ally_aliases: list[str]
     prompt_template: dict[str, Any]
+    decision_id: str = field(default_factory=lambda: str(uuid4()))
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +134,7 @@ class _Transport:
         )
         self.endpoint = endpoint.rstrip("/")
         self.bedrock_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        self.local: Any = threading.local()
 
     def complete(self, system: str, user: str, max_tokens: int, slot: int) -> str:
         if self.kind == "bedrock":
@@ -146,8 +150,11 @@ class _Transport:
             if self.bedrock_token:
                 headers["authorization"] = f"Bearer {self.bedrock_token}"
         else:
-            url = (f"{os.environ['COWORLD_LLM_ENDPOINT'].rstrip('/')}/v1/messages"
-                   if self.kind == "sidecar" else ANTHROPIC_MESSAGES_URL)
+            url = (
+                f"{os.environ['COWORLD_LLM_ENDPOINT'].rstrip('/')}/v1/messages"
+                if self.kind == "sidecar"
+                else ANTHROPIC_MESSAGES_URL
+            )
             body = {
                 "model": self.model,
                 "max_tokens": max_tokens,
@@ -162,25 +169,64 @@ class _Transport:
             }
         if self.kind == "sidecar":
             headers["X-Coworld-Player-Slot"] = str(slot)
+        evidence: dict[str, Any] = {"request": body, "model": self.model}
+        self.local.evidence = evidence
         request = urllib.request.Request(  # noqa: S310 - fixed https endpoints
             url, data=json.dumps(body).encode("utf-8"), method="POST", headers=headers
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
-                payload = json.loads(response.read().decode("utf-8"))
+                raw = response.read()
+                self._received(response, raw)
+                payload = json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = ""
             try:
-                detail = exc.read().decode("utf-8", errors="replace")[:200]
+                raw = exc.read()
+                self._received(exc, raw)
+                detail = raw.decode("utf-8", errors="replace")[:200]
             except Exception:  # noqa: BLE001
                 detail = ""
             raise RuntimeError(f"http {exc.code}: {detail}") from exc
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"{type(exc).__name__}: {exc}") from exc
+        self.local.evidence.update(
+            {
+                "stop_reason": payload.get("stop_reason"),
+                "input_tokens": (payload.get("usage") or {}).get("input_tokens"),
+                "output_tokens": (payload.get("usage") or {}).get("output_tokens"),
+            }
+        )
         blocks = payload.get("content") or []
         return "".join(
             block.get("text", "") for block in blocks if isinstance(block, dict) and block.get("type") == "text"
         )
+
+    def _received(self, response: Any, raw: bytes) -> None:
+        headers = {key.lower(): value for key, value in response.headers.items()}
+        self.local.evidence.update(
+            {
+                "raw_response": raw.decode("utf-8") if _valid_utf8(raw) else None,
+                "response_body_b64": base64.b64encode(raw).decode(),
+                "http_status": response.code,
+                "response_headers": headers,
+                "response_complete": True,
+                "response_reader_joined": True,
+                "platform_call_id": headers.get("x-softmax-llm-call-id"),
+                "provider_request_id": headers.get("request-id"),
+                "model_identity": headers.get("x-coworld-checkpoint-sha256"),
+                "tokenizer_identity": headers.get("x-coworld-tokenizer-sha256"),
+                "chat_template_sha256": headers.get("x-coworld-chat-template-sha256"),
+            }
+        )
+
+
+def _valid_utf8(raw: bytes) -> bool:
+    try:
+        raw.decode("utf-8")
+        return True
+    except UnicodeDecodeError:
+        return False
 
 
 def build_transport(model: str, timeout: float) -> _Transport | None:
@@ -227,7 +273,9 @@ class PlanBatch:
                 except Exception as exc:  # noqa: BLE001 - never escapes the batch
                     _log(f"slot {slot}: batch worker raised {exc!r}")
                     landed.append(
-                        PlanOutcome(slot=slot, plan=None, cause="transport", detail=truncate_runes(repr(exc), ERROR_RUNES))
+                        PlanOutcome(
+                            slot=slot, plan=None, cause="transport", detail=truncate_runes(repr(exc), ERROR_RUNES)
+                        )
                     )
             elif expired:
                 self.delivered.add(slot)
@@ -259,6 +307,7 @@ class LlmPlanner:
         self.budget = RateBudget(max_requests_per_minute)
         self._transport = transport if transport is not None else build_transport(model, timeout_seconds)
         self._pool = ThreadPoolExecutor(max_workers=max(1, max_workers), thread_name_prefix="cc-plan")
+        self.evidence: dict[str, list[dict[str, Any]]] = {}
         self._requests = 0
         self._requests_lock = threading.Lock()
         if self._transport is None:
@@ -280,6 +329,7 @@ class LlmPlanner:
         """Submit every prompt seat's call at once. Returns immediately."""
         batch = PlanBatch(turn=turn, deadline=time.monotonic() + self.timeout_seconds)
         for request in requests:
+            self.evidence[request.decision_id] = []
             batch.futures[request.slot] = self._pool.submit(self._one_seat, request)
         return batch
 
@@ -300,6 +350,16 @@ class LlmPlanner:
             used += 1
             with self._requests_lock:
                 self._requests += 1
+            receipt: dict[str, Any] = {
+                "attempt_id": str(uuid4()),
+                "policy": "prompt",
+                "origin": "model" if isinstance(self._transport, _Transport) else "unknown",
+                "inference_mode": "text_action",
+                "accepted": False,
+                "prompt": [{"role": "system", "content": request.system}, {"role": "user", "content": user}],
+            }
+            self.evidence.setdefault(request.decision_id, []).append(receipt)
+            started = time.monotonic()
             try:
                 text = self._transport.complete(request.system, user, self.max_output_tokens, request.slot)
             except Exception as exc:  # noqa: BLE001 - classified, never escapes
@@ -314,7 +374,17 @@ class LlmPlanner:
                     cause, detail = exc.cause, exc.detail
                     _log(f"slot {request.slot} attempt {attempt}: {cause} {detail}")
                 else:
+                    receipt["response"] = text
+                    receipt["parsed_action"] = {key: getattr(plan, key) for key in plan.__dataclass_fields__}
+                    receipt["accepted"] = True
                     return PlanOutcome(slot=request.slot, plan=plan, requests=used)
+            finally:
+                receipt["latency_ms"] = (time.monotonic() - started) * 1000
+                if isinstance(self._transport, _Transport):
+                    receipt.update(getattr(self._transport.local, "evidence", {}))
+                if not receipt["accepted"]:
+                    receipt["rejection_reason"] = f"{cause}: {detail}"
+
             if attempt == 0:
                 user = f"{request.user}\n\n{RETRY_HINT}"
         return PlanOutcome(slot=request.slot, plan=None, cause=cause, detail=detail, requests=used)
@@ -408,11 +478,11 @@ def build_user_message(view: dict[str, Any]) -> str:
         lines.append(f"  {station['name']} {_fmt_pos(station['pos'])} {station['age']} ticks ago{note}")
     held = view["counters"][:6]
     if held:
-        lines.append(
-            "COUNTERS HOLDING SOMETHING (<=6): "
-            + ", ".join(f"{_fmt_pos(pos)} {item}" for pos, item in held)
-        )
-    lines.append(f"BLOCKED LAST TURN: {view['blocked']} times" + (f", mostly at {_fmt_pos(view['blocked_at'])}" if view["blocked_at"] else ""))
+        lines.append("COUNTERS HOLDING SOMETHING (<=6): " + ", ".join(f"{_fmt_pos(pos)} {item}" for pos, item in held))
+    lines.append(
+        f"BLOCKED LAST TURN: {view['blocked']} times"
+        + (f", mostly at {_fmt_pos(view['blocked_at'])}" if view["blocked_at"] else "")
+    )
     lines.append("LEGAL STATIONS: " + ", ".join(view["legal_stations"]))
     lines.append(f"LAST ORDER: {view['last_order']}")
     radio = view["radio"][:3]

@@ -47,7 +47,6 @@ from collab_cooking.game.game import (
     VEG,
     WASH_PROGRESS,
 )
-
 from collab_cooking.kitchens.layouts import (
     STATION_BY_PLAN_NAME,
     dimensions,
@@ -234,8 +233,11 @@ class KitchenBrain(StatefulPolicyImpl[KitchenAgentState]):
         yielded = self._yield_action(state, plan)
         if yielded is not None:
             action = yielded
-        elif state.idle_ticks >= STALL_TICKS and _holding_any_item(state.inventory) \
-                and not _holding_servable_dish(state.inventory):
+        elif (
+            state.idle_ticks >= STALL_TICKS
+            and _holding_any_item(state.inventory)
+            and not _holding_servable_dish(state.inventory)
+        ):
             # The starter's rule -- four failed moves, then explore for ONE
             # tick -- is right for a cog wedged against another cog, and blind
             # to a cog holding an item its station cannot accept: it walks back
@@ -885,9 +887,7 @@ class KitchenBrain(StatefulPolicyImpl[KitchenAgentState]):
         if target != ally:
             return None
         state.current_task = f"yield to {plan.yield_to}"
-        perpendicular = (
-            ("north", "south") if wanted[0] == 0 else ("east", "west")
-        )
+        perpendicular = ("north", "south") if wanted[0] == 0 else ("east", "west")
         order = ("north", "south", "east", "west")
         for name in order:
             if name not in perpendicular:
@@ -949,6 +949,34 @@ class KitchenBrain(StatefulPolicyImpl[KitchenAgentState]):
                 return self._route_to_station(state, "serving_station")
             state.current_task = "hold"
             return Action(name="noop")
+        # A shift names a job, not a station to bump into for fifty ticks.
+        # Finish carried items and use the existing recipe chain for prerequisites.
+        inv = state.inventory
+        if inv.get(DIRTY_PLATE, 0) > 0:
+            return self._commit_station_task(state, "wash", "wash_station")
+        if _holding_servable_dish(inv):
+            return self._route_to_station(state, "serving_station")
+        chop = self._latest_object_inventory(state, "chopping_station")
+        cook = self._latest_object_inventory(state, "cooking_station")
+        fryer = self._latest_object_inventory(state, "fryer_station")
+        if state.active_station_task == "chop_veg" and chop.get(CHOP_VEG_PROGRESS, 0) > 0:
+            return self._route_to_station(state, "chopping_station")
+        if state.active_station_task == "chop_meat" and chop.get(CHOP_MEAT_PROGRESS, 0) > 0:
+            return self._route_to_station(state, "chopping_station")
+        if (
+            state.active_station_task == "wash"
+            and self._latest_object_inventory(state, "wash_station").get(WASH_PROGRESS, 0) > 0
+        ):
+            return self._route_to_station(state, "wash_station")
+        if station in ("pot", "fryer", "pass"):
+            recipe = "soup" if station == "pot" else "fries" if station == "fryer" else state.recipe_preference
+            return self._recipe_action(state, recipe, chop, cook, fryer)
+        if station == "chop":
+            if inv.get(VEG, 0) > 0 or inv.get(MEAT, 0) > 0:
+                return self._route_to_chopping_station(state, state.recipe_preference)
+            return self._recipe_action(state, state.recipe_preference, chop, cook, fryer)
+        if station in ("veg", "meat", "plate") and _holding_any_item(inv):
+            return self._recipe_action(state, state.recipe_preference, chop, cook, fryer)
         target = PLAN_STATIONS.get(station)
         if target is None:
             return None
@@ -986,9 +1014,7 @@ class KitchenPolicy(MultiAgentPolicy):
 
     def agent_policy(self, agent_id: int) -> StatefulAgentPolicy[KitchenAgentState]:
         if agent_id not in self._agents:
-            brain = KitchenBrain(
-                self._policy_env_info, agent_id, layout=self._layout, baseline=self._baseline
-            )
+            brain = KitchenBrain(self._policy_env_info, agent_id, layout=self._layout, baseline=self._baseline)
             self._agents[agent_id] = StatefulAgentPolicy(brain, self._policy_env_info, agent_id=agent_id)
         return self._agents[agent_id]
 

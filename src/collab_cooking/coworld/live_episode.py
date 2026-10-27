@@ -233,6 +233,7 @@ class LiveMettaGridEpisode:
         disconnect_exception_types: tuple[type[Exception], ...] = (RuntimeError,),
         request_shutdown: Callable[[], None] = lambda: None,
     ) -> None:
+        self._private_plans: list[dict[str, Any]] = []
         self.sim = sim
         self.policy_env = policy_env
         self.config = config
@@ -577,7 +578,9 @@ class LiveMettaGridEpisode:
                 recipe = event.get("recipe", "salad")
                 self.served_by_recipe[recipe] = self.served_by_recipe.get(recipe, 0) + 1
                 dish = event.get("dish", 0)
-                self.ticker.append({"t": event.get("t", self.sim.current_step), "recipe": recipe, "alias": event["alias"]})
+                self.ticker.append(
+                    {"t": event.get("t", self.sim.current_step), "recipe": recipe, "alias": event["alias"]}
+                )
                 self._feed(event, f"{event['alias']} serves {recipe} - dish {dish}", "serve")
                 self._beat(event, "serve", f"Dish {dish} - {event['alias']} serves {recipe}")
             elif kind == "blocked":
@@ -595,10 +598,7 @@ class LiveMettaGridEpisode:
 
     def _near_pass(self, event: dict[str, Any]) -> bool:
         here = (event["y"], event["x"])
-        return any(
-            (here[0] + dr, here[1] + dc) in self._pass_counters
-            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1))
-        )
+        return any((here[0] + dr, here[1] + dc) in self._pass_counters for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)))
 
     def _feed(self, event: dict[str, Any], text: str, kind: str) -> None:
         self.feed.append({"t": int(self.sim.current_step), "kind": kind, "text": truncate_runes(text, FEED_RUNES)})
@@ -632,7 +632,9 @@ class LiveMettaGridEpisode:
             return
         if step % self.config.plan_interval_steps != 0:
             return
-        if self.batch is not None and not self.batch.finished:
+        if self.batch is not None and (
+            not self.batch.finished or any(not future.done() for future in self.batch.futures.values())
+        ):
             return
         now = time.monotonic()
         if self.last_batch_at and now - self.last_batch_at < self.config.min_plan_interval_seconds:
@@ -643,6 +645,15 @@ class LiveMettaGridEpisode:
         self.turn += 1
         self.last_batch_at = now
         requests = [self._plan_request(seat) for seat in seats]
+        for request in requests:
+            self._private_plans.append(
+                {
+                    "request": request,
+                    "turn": self.turn,
+                    "action": {"station": "", "baseline": self.config.fallback_scripted},
+                    "status": "fallback",
+                }
+            )
         for seat in seats:
             seat.plan_pending = True
         self.batch = self.planner.start_turn(self.turn, requests)
@@ -656,6 +667,14 @@ class LiveMettaGridEpisode:
             return
         self.turn += 1
         for seat in seats:
+            self._private_plans.append(
+                {
+                    "request": self._plan_request(seat),
+                    "turn": self.turn,
+                    "action": {"station": "", "baseline": self.config.fallback_scripted},
+                    "status": "fallback",
+                }
+            )
             seat.fallbacks += 1
             self._push_event({"ev": "fallback", "slot": seat.slot, "alias": seat.alias, "cause": cause})
 
@@ -744,11 +763,9 @@ class LiveMettaGridEpisode:
         counters.sort()
 
         blocked_at = max(self.heat, key=lambda key: self.heat[key], default=None)
-        radio = [
-            (other.alias, other.say)
-            for other in self.seats
-            if other.slot != seat.slot and other.say
-        ][:RADIO_LINES]
+        radio = [(other.alias, other.say) for other in self.seats if other.slot != seat.slot and other.say][
+            :RADIO_LINES
+        ]
         return {
             "turn": self.turn + 1,
             "turns": self.total_turns,
@@ -756,9 +773,7 @@ class LiveMettaGridEpisode:
             "ticks": self.config.max_steps,
             "layout": self.config.layout,
             "dishes": sum(self.state.delivered),
-            "live": len(
-                [t for t in self.state.board.items() if t[0].startswith("ticket_") and t[1] > 0]
-            ),
+            "live": len([t for t in self.state.board.items() if t[0].startswith("ticket_") and t[1] > 0]),
             "alias": seat.alias,
             "position": position,
             "carrying": self.state.cogs[seat.slot]["carrying"] if self.state.cogs else "",
@@ -831,13 +846,22 @@ class LiveMettaGridEpisode:
         for outcome in self.batch.poll():
             seat = self.seats[outcome.slot]
             seat.plan_pending = False
+            private = next(
+                (
+                    row
+                    for row in reversed(self._private_plans)
+                    if row["turn"] == self.batch.turn and row["request"].slot == seat.slot
+                ),
+                None,
+            )
+            if private is not None and outcome.plan is not None:
+                private["action"] = {key: getattr(outcome.plan, key) for key in outcome.plan.__dataclass_fields__}
+                private["status"] = "accepted"
             if outcome.ok and outcome.plan is not None:
                 plan = outcome.plan
                 seat.say = plan.say
                 seat.note = plan.note
-                seat.last_order = (
-                    f"station={plan.station} recipe={plan.recipe} zone={plan.zone} handoff={plan.handoff}"
-                )
+                seat.last_order = f"station={plan.station} recipe={plan.recipe} zone={plan.zone} handoff={plan.handoff}"
                 event = plan.replay_event(seat.slot, seat.alias, self.batch.turn, outcome.src)
                 self._push_event(event)
                 if plan.say:
@@ -865,9 +889,7 @@ class LiveMettaGridEpisode:
                 seat.plan_delivered_step = int(self.sim.current_step)
             else:
                 seat.fallbacks += 1
-                self._push_event(
-                    {"ev": "fallback", "slot": seat.slot, "alias": seat.alias, "cause": outcome.cause}
-                )
+                self._push_event({"ev": "fallback", "slot": seat.slot, "alias": seat.alias, "cause": outcome.cause})
                 self._feed(
                     {},
                     f"{seat.alias} fell back to {self.config.fallback_scripted} - {outcome.cause}",
@@ -901,9 +923,7 @@ class LiveMettaGridEpisode:
         )
 
     async def _send_to_slot(self, slot: int, message: dict[str, Any]) -> None:
-        await self._send_to_players(
-            {connection_id: message for connection_id in self.connections_by_slot[slot]}
-        )
+        await self._send_to_players({connection_id: message for connection_id in self.connections_by_slot[slot]})
 
     async def _send_to_players(self, messages: dict[str, dict[str, Any]]) -> None:
         connections = tuple(
@@ -1009,6 +1029,13 @@ class LiveMettaGridEpisode:
         if self._artifact_sink is not None and self.writer is not None:
             self._artifact_sink(results_mod.encode(results), self.writer.encode(results))
         await self._send_final(results)
+        if self.planner is not None and self.batch is not None:
+            pending = [asyncio.wrap_future(future) for future in self.batch.futures.values() if not future.done()]
+            if pending:
+                await asyncio.wait(pending, timeout=2 * self.config.plan_timeout_seconds + 1)
+        from collab_cooking.coworld.capture import write_capture
+
+        write_capture(self, results)
         if self.planner is not None:
             self.planner.shutdown()
         # The certification runner pings /global AFTER the player pods start,

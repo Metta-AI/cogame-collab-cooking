@@ -20,6 +20,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+  "coworld==0.1.64",
   "websockets>=15.0.0",
   "uvicorn[standard]>=0.34.0",
   "fastapi>=0.115.0",
