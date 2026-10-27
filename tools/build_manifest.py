@@ -25,6 +25,7 @@ from collab_cooking.kitchens.layouts import (  # noqa: E402
 )
 
 IMAGE = "{{COLLAB_COOKING_IMAGE}}"
+SOURCE_URL = "https://github.com/Metta-AI/cogame-collab-cooking/tree/main"
 GAME_NAME = "collab_cooking"
 OWNER = "daveey@softmax.com"
 SLUG = "collab-cooking"
@@ -128,9 +129,18 @@ def config_schema() -> dict:
             "layout": {"type": "string", "enum": list(LAYOUT_NAMES)},
             "seed": {"type": "integer", "minimum": 0},
             "promptVariant": {
-                "type": "string", "default": "canonical",
-                "enum": ["canonical", "plain", "numbered", "questions", "reordered",
-                         "heldout-briefing", "heldout-reference", "mixed"],
+                "type": "string",
+                "default": "canonical",
+                "enum": [
+                    "canonical",
+                    "plain",
+                    "numbered",
+                    "questions",
+                    "reordered",
+                    "heldout-briefing",
+                    "heldout-reference",
+                    "mixed",
+                ],
                 "description": "Episode-stable wording; mixed requires an independent promptSeed.",
             },
             "promptSeed": {"type": "integer", "minimum": 0},
@@ -179,10 +189,28 @@ def results_schema() -> dict:
         "type": "object",
         "additionalProperties": False,
         "required": [
-            "game", "protocol", "reason", "layout", "steps", "dishes", "scores",
-            "delivered", "served_by_recipe", "orders_arrived", "orders_expired",
-            "burned", "blocked_moves", "handoffs", "names", "aliases",
-            "seat_kinds", "cross_play", "disconnected", "fallbacks", "action_fallbacks", "llm_requests",
+            "game",
+            "protocol",
+            "reason",
+            "layout",
+            "steps",
+            "dishes",
+            "scores",
+            "delivered",
+            "served_by_recipe",
+            "orders_arrived",
+            "orders_expired",
+            "burned",
+            "blocked_moves",
+            "handoffs",
+            "names",
+            "aliases",
+            "seat_kinds",
+            "cross_play",
+            "disconnected",
+            "fallbacks",
+            "action_fallbacks",
+            "llm_requests",
         ],
         "properties": {
             "game": {"type": "string", "const": GAME_NAME},
@@ -285,9 +313,7 @@ def docs() -> dict:
         ("protocol", "Protocol"),
     ):
         body = (ROOT / "docs" / f"{page_id}.md").read_text(encoding="utf-8")
-        pages.append(
-            {"id": page_id, "title": title, "content": {"type": "text", "value": body}}
-        )
+        pages.append({"id": page_id, "title": title, "content": {"type": "text", "value": body}})
     return {"readme": {"type": "text", "value": readme}, "pages": pages}
 
 
@@ -327,6 +353,7 @@ def manifest() -> dict:
             "runnable": {
                 "type": "game",
                 "image": IMAGE,
+                "source_url": SOURCE_URL,
                 "run": ["/bin/collab-cooking"],
                 "env": {},
             },
@@ -343,6 +370,7 @@ def manifest() -> dict:
                 "name": entry["name"],
                 "description": entry["description"],
                 "image": IMAGE,
+                "source_url": SOURCE_URL,
                 "run": ["/bin/collab-cooking-player"],
                 "env": entry["env"],
             }
