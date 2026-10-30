@@ -25,6 +25,7 @@ from collab_cooking.kitchens.layouts import (  # noqa: E402
 )
 
 IMAGE = "{{COLLAB_COOKING_IMAGE}}"
+SOURCE_URL = "https://github.com/Metta-AI/cogame-collab-cooking/tree/main"
 GAME_NAME = "collab_cooking"
 OWNER = "daveey@softmax.com"
 SLUG = "collab-cooking"
@@ -351,6 +352,7 @@ def manifest() -> dict:
             "runnable": {
                 "type": "game",
                 "image": IMAGE,
+                "source_url": SOURCE_URL,
                 "run": ["/bin/collab-cooking"],
                 "env": {},
             },
@@ -367,6 +369,7 @@ def manifest() -> dict:
                 "name": entry["name"],
                 "description": entry["description"],
                 "image": IMAGE,
+                "source_url": SOURCE_URL,
                 "run": ["/bin/collab-cooking-player"],
                 "env": entry["env"],
             }

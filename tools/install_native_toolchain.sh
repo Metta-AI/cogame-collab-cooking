@@ -19,4 +19,5 @@ printf '%s  %s\n' 3b3084394bd26b09f84a3f82389f075221c8784893238390939d71dd66ac9e
 chmod +x /usr/local/bin/nimby
 nimby use 2.2.4
 cp -aL "$HOME/.nimby/nim" /opt/nim-2.2.4
+printf '\n--parallelBuild:1\n' >> /opt/nim-2.2.4/config/nim.cfg
 ln -s /opt/nim-2.2.4/bin/nim /usr/local/bin/nim

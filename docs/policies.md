@@ -20,15 +20,15 @@ never sees the seed, the ticket schedule, another seat's plan, or any real polic
 One JSON object, nothing else, beginning with `{`. Leading or trailing prose is tolerated
 (extraction takes the first balanced `{...}` span); unknown keys are ignored.
 
-| field | type | cap | invalid becomes |
-| --- | --- | --- | --- |
-| `station` | enum | 12 chars | must be a member of `LEGAL STATIONS` -- anything else is **illegal**: one retry, then the fallback |
-| `recipe` | `salad\|soup\|fries\|any` | 6 chars | `any` |
-| `zone` | `left\|right\|pass\|any` | 6 chars | `any` |
-| `handoff` | an ally alias or `none` | 8 chars | `none` |
-| `yield_to` | an ally alias or `none` | 8 chars | `none` |
-| `say` | free text | 120 runes | truncated on a rune boundary; broadcast to the team next turn and to spectators |
-| `note` | free text | 200 runes | truncated on a rune boundary; private, echoed back only to you, never written to the replay |
+| field      | type                      | cap       | invalid becomes                                                                                    |
+| ---------- | ------------------------- | --------- | -------------------------------------------------------------------------------------------------- |
+| `station`  | enum                      | 12 chars  | must be a member of `LEGAL STATIONS` -- anything else is **illegal**: one retry, then the fallback |
+| `recipe`   | `salad\|soup\|fries\|any` | 6 chars   | `any`                                                                                              |
+| `zone`     | `left\|right\|pass\|any`  | 6 chars   | `any`                                                                                              |
+| `handoff`  | an ally alias or `none`   | 8 chars   | `none`                                                                                             |
+| `yield_to` | an ally alias or `none`   | 8 chars   | `none`                                                                                             |
+| `say`      | free text                 | 120 runes | truncated on a rune boundary; broadcast to the team next turn and to spectators                    |
+| `note`     | free text                 | 200 runes | truncated on a rune boundary; private, echoed back only to you, never written to the replay        |
 
 `LEGAL STATIONS` is precomputed by the same predicate the validator applies -- the stations
 reachable from your current tile in this kitchen -- so in `forced` a left-half cog is never
@@ -39,7 +39,12 @@ offered it.
 
 1. `station` sets the sub-goal, overriding the brain's own choice until the next plan:
    `veg`, `meat`, `chop`, `pot`, `fryer`, `plate`, `pass`, `sink`, `board`, or `hold` (stand
-   still unless carrying a dish, in which case route to the pass).
+   still unless carrying a dish, in which case route to the pass). For an active
+   cooking job, the executor resolves missing ingredients and plates through the
+   existing recipe chain. It completes multi-use chopping/washing after the raw
+   item leaves the cog, and serves a carried dish before fetching another item.
+   This avoids spending the entire shift bumping a station with an incompatible
+   inventory.
 2. `recipe` pins the recipe unless `any`, in which case the brain keeps deriving it from the
    board.
 3. `zone` filters target selection: `left` and `right` are the halves by column, `pass` is the
@@ -65,14 +70,14 @@ offered it.
 
 Four names, all the same brain with one parameter changed.
 
-* **`brigade`** (the default, and the fallback) -- roles: slot 0 prep, 1 cook, 2 server, 3
+- **`brigade`** (the default, and the fallback) -- roles: slot 0 prep, 1 cook, 2 server, 3
   all-rounder. Dirty plate to the sink; servable dish to the pass (via the board if that recipe
   has no live ticket); otherwise the role branch, which prioritises a ready-or-burned cooker,
   then the deepest queue, then the next missing ingredient.
-* **`runner`** -- every seat all-rounder: no roles, everyone takes the nearest useful job. The
+- **`runner`** -- every seat all-rounder: no roles, everyone takes the nearest useful job. The
   no-task-allocation control.
-* **`passer`** -- `brigade` with the zone pinned to its own half and hand-off always on: it never
+- **`passer`** -- `brigade` with the zone pinned to its own half and hand-off always on: it never
   crosses the midline and always stages items on the nearest pass counter.
-* **`courier`** -- every seat server: grab a plate, serve whatever is ready, prep only when
+- **`courier`** -- every seat server: grab a plate, serve whatever is ready, prep only when
   nothing is. The greedy-serve control; it starves the prep chain, which is the point of having
   it on the ladder.

@@ -50,7 +50,7 @@ env:
   SLUG: collab-cooking
   IMAGE: coworld-collab-cooking
   # Native Coworld CLI; game SDK >=0.1.57 remains a separate deployment prerequisite.
-  COWORLD_PKG: "coworld[auth]==0.1.56"
+  COWORLD_PKG: "coworld[auth]==0.1.64"
   LIVENESS_MARKER: "Replay liveness: skipped (static replay bundle declared"
 
 jobs:
