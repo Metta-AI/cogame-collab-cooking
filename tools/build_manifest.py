@@ -58,7 +58,7 @@ BUNDLED_PLAYERS = [
         "id": "collab-prompt",
         "name": "Reference prompt",
         "description": "The reference prompt policy: an LLM shift order every 50 ticks.",
-        "env": {"PLAYER_PROMPT": REFERENCE_PROMPT},
+        "env": {"PLAYER_PROMPT": REFERENCE_PROMPT, "COWORLD_LLM_ENABLED": "true"},
     },
     {
         "id": "brigade",
@@ -168,8 +168,6 @@ def config_schema() -> dict:
             "soup_burn_ticks": {"type": "integer", "minimum": 1, "maximum": 100},
             "fries_cook_ticks": {"type": "integer", "minimum": 1, "maximum": 100},
             "fries_burn_ticks": {"type": "integer", "minimum": 1, "maximum": 100},
-            "model": {"type": "string"},
-            "max_output_tokens": {"type": "integer", "minimum": 64, "maximum": 4096},
         },
     }
 
@@ -335,6 +333,7 @@ def manifest() -> dict:
         "episode_timeout_minutes": 20,
         "game": {
             "name": GAME_NAME,
+            "player_runtime": "platform-hosted",
             # `coworld build` validates this file with its own loader before it
             # touches docker, and the top level is `extra="forbid"`: the ONLY
             # place `replay_viewer` is read from is `game` (bundle.py:81,

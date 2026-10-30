@@ -41,7 +41,7 @@ jobs:
   # ---------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
@@ -50,11 +50,14 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Install the source engine toolchain
+        run: sudo bash tools/install_native_toolchain.sh
+
       - name: Install the game and its test deps
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          pip install -e ".[standalone]" pytest
+          pip install -e ".[standalone,test]"
 
       - name: Run the tests
         run: python -m pytest tests/ -v
@@ -70,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m venv /tmp/coworld-loader
-          /tmp/coworld-loader/bin/pip install --quiet "coworld==0.1.56"
+          /tmp/coworld-loader/bin/pip install --quiet "coworld==0.1.64"
           /tmp/coworld-loader/bin/python tools/ci/check_manifest_loads.py
 
   # ---------------------------------------------------------------------

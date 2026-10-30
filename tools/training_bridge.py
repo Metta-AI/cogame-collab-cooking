@@ -9,8 +9,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from collab_cooking.agent.brain.policy import KitchenBrain
 from collab_cooking.coworld.live_episode import EpisodeConfig, LiveMettaGridEpisode
-from collab_cooking.coworld.player import Seat as PlayerSeat
+from collab_cooking.coworld.observation import decode_observation
 from collab_cooking.missions.kitchen import make_kitchen_mission
 
 BASELINES = ("brigade", "brigade", "passer", "courier")
@@ -29,6 +30,7 @@ def decision(
     return {
         "kind": "decision",
         "game": "collab_cooking",
+        "inference_mode": "physical_choice_research",
         "decision_id": decision_id,
         "seat": seat,
         "engine_seat": seat,
@@ -49,6 +51,12 @@ def decision(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", default="open-kitchen")
+    parser.add_argument(
+        "--research-physical",
+        action="store_true",
+        required=True,
+        help="Explicit physical-choice research profile; distinct from hosted native macro inference",
+    )
     parser.add_argument("--steps", type=int)
     args = parser.parse_args()
     manifest = json.loads((Path(__file__).resolve().parents[1] / "coworld_manifest_template.json").read_text())
@@ -60,7 +68,8 @@ def main() -> None:
         config.max_steps = args.steps
 
     episode: LiveMettaGridEpisode | None = None
-    players: list[PlayerSeat] = []
+    players: list[KitchenBrain] = []
+    states: list[Any] = []
     observations: list[dict[str, Any]] = []
     pending: list[str] = []
     metadata: dict[str, Any] = {}
@@ -83,11 +92,21 @@ def main() -> None:
                 player_names=[f"teacher-{i}" for i in range(4)],
             )
             players = []
+            states = []
             for slot, baseline in enumerate(BASELINES):
-                player = PlayerSeat()
-                player.configure(episode.player_config_message(slot, f"training-{slot}"), baseline)
+                player = KitchenBrain(episode.policy_env, slot, layout=config.layout, baseline=baseline)
                 players.append(player)
-            observations = [episode.observation_message(slot) for slot in range(4)]
+                states.append(player.initial_agent_state())
+            observations = [
+                {
+                    "type": "observation",
+                    "slot": slot,
+                    "step": int(episode.sim.current_step),
+                    "observation": episode.private_observation(slot),
+                    "scores": episode.scores(),
+                }
+                for slot in range(4)
+            ]
             metadata = episode.observation_metadata()
             pending = []
             decision_id = 0
@@ -113,8 +132,9 @@ def main() -> None:
             continue
         elif kind == "teacher":
             if teacher_action is None:
-                name, _task = players[seat].act(observations[seat]["observation"])
-                teacher_action = {"action": name}
+                observed = decode_observation(episode.policy_env, observations[seat]["observation"], seat)
+                proposed, states[seat] = players[seat].step_with_state(observed, states[seat])
+                teacher_action = {"action": proposed.name}
             print(json.dumps({"response": json.dumps(teacher_action)}), flush=True)
             continue
         elif kind == "step":
@@ -138,7 +158,16 @@ def main() -> None:
                         "scores": {str(slot): sum(delivered) + 0.01 * count for slot, count in enumerate(delivered)},
                     }
                 else:
-                    observations = [episode.observation_message(slot) for slot in range(4)]
+                    observations = [
+                        {
+                            "type": "observation",
+                            "slot": slot,
+                            "step": int(episode.sim.current_step),
+                            "observation": episode.private_observation(slot),
+                            "scores": episode.scores(),
+                        }
+                        for slot in range(4)
+                    ]
                     seat = 0
                     observation = decision(observations[seat], decision_id, seat, episode.action_names, metadata)
             else:

@@ -37,5 +37,4 @@ ready food, and serves carried dishes. Chopping and washing continue for their
 required uses after the carried raw item has moved into the station. This
 keeps the chosen job consequential across the whole shift. Tickets, scores,
 recipes, station rules, plan cadence, and inference budgets are unchanged.
-The private receipt reader joins bounded in-flight plan calls before writing;
-a remaining reader prevents completion qualification.
+The native player joins its response reader before submitting a receipt. The game journals issued windows, installed macros and physical transitions; the collector joins those records with player receipts. See [the maintained training workflow](../TRAINING.md).

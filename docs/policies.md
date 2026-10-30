@@ -5,8 +5,9 @@ The bundled prompt and scripted policies share `/bin/collab-cooking-player`.
 ## `PLAYER_PROMPT` -- a prompt policy
 
 Set `PLAYER_PROMPT` to your standing orders (up to 1200 runes). The seat registers as a prompt
-seat and the **game** asks the model for one shift order every 50 ticks -- roughly ten seconds of
-wall clock -- while a scripted executor in the player container walks the cog tick by tick until
+seat. The game grants simultaneous private windows every 50 ticks, at least ten seconds
+apart. The **player** calls its registered native sidecar and parses one shift order,
+while a scripted executor in the player container walks the cog tick by tick until
 the next order lands. Two clocks: the model picks the job, the executor picks the tile.
 
 The model sees only what that seat can see: its own 13x13 window, its remembered world model
@@ -56,14 +57,14 @@ offered it.
 
 ### Degrading
 
-| failure                                            | response                                                                                                                                                     |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| the call times out (12 s)                          | **retry once**, that seat only, with a hint                                                                                                                  |
-| the reply is not JSON, or has no balanced object   | the same single retry                                                                                                                                        |
-| `station` is not in `LEGAL STATIONS`               | the same single retry                                                                                                                                        |
-| the retry also fails                               | that seat plays `brigade` until the next plan turn, with a `fallback` event naming the cause                                                                 |
-| the rolling 26 requests/minute budget is exhausted | the turn is skipped for that seat, cause `rate_budget`                                                                                                       |
-| no credentials at all                              | the client is **disabled at startup and makes zero network calls**; every prompt seat plays `brigade` all episode, and the episode still finishes `complete` |
+| failure | response |
+| --- | --- |
+| the call times out (12 s) | **retry once**, that seat only, with a hint |
+| the reply is not JSON, or has no balanced object | the same single retry |
+| `station` is not in `LEGAL STATIONS` | the same single retry |
+| the retry also fails | that seat plays `brigade` until the next plan turn, with a `fallback` event naming the cause |
+| the rolling 26 requests/minute budget is exhausted | the turn is skipped for that seat, cause `rate_budget` |
+| missing native sidecar endpoint | the native player fails startup; select an explicit scripted baseline for diagnostic play |
 
 ## `PLAYER_SCRIPTED` -- the baselines
 

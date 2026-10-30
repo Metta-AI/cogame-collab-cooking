@@ -40,12 +40,14 @@ def main() -> None:
             "(bundle.py: 'Coworld manifest templates must not set game.version') -- "
             "the version comes from the --version flag"
         )
-    # Hydrate this template's version and compose image before using the same
-    # public validator as `coworld build`.
+    # The same call `coworld build` makes, with the compose service's image
+    # placeholder resolved the way `_compose_image_placeholders` resolves it.
     raw["game"]["version"] = "0.1.0"
-    for runnable in [raw["game"]["runnable"], *raw["player"]]:
-        if runnable["image"] == IMAGE_PLACEHOLDER:
-            runnable["image"] = "coworld-collab-cooking:latest"
+    for section in ("player", "commissioner", "grader", "diagnoser", "optimizer"):
+        for runnable in raw.get(section, []):
+            if runnable.get("image") == IMAGE_PLACEHOLDER:
+                runnable["image"] = "coworld-collab-cooking:latest"
+    raw["game"]["runnable"]["image"] = "coworld-collab-cooking:latest"
     manifest = validate_upload_manifest(raw).runtime_manifest
 
     viewer = manifest.game.replay_viewer

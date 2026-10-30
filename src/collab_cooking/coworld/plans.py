@@ -15,10 +15,9 @@ engine ``talk`` string and every error string that can reach the replay.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
 
-from collab_cooking.agent.brain.policy import PlanDirective
+from collab_cooking.coworld.plan_protocol import PlanControl
 
 # Field caps, exactly as the design note's table states them.
 STATION_CAP = 12
@@ -49,8 +48,7 @@ FALLBACK_CAUSES: tuple[str, ...] = (
 )
 
 RETRY_HINT = (
-    "Your last reply was not usable. Reply with ONE JSON object beginning with "
-    "{ and a station from LEGAL STATIONS."
+    "Your last reply was not usable. Reply with ONE JSON object beginning with { and a station from LEGAL STATIONS."
 )
 
 
@@ -73,51 +71,6 @@ class PlanError(Exception):
         super().__init__(f"{cause}: {detail}" if detail else cause)
         self.cause = cause if cause in FALLBACK_CAUSES else "parse"
         self.detail = truncate_runes(detail, ERROR_RUNES)
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedPlan:
-    """A validated reply, ready to become a `PlanDirective`.
-
-    `note` is private: it is echoed back only to its own seat and is **never**
-    written to the replay.
-    """
-
-    station: str
-    recipe: str
-    zone: str
-    handoff: str
-    yield_to: str
-    say: str
-    note: str
-
-    def directive(self, turn: int, src: str) -> PlanDirective:
-        return PlanDirective(
-            turn=turn,
-            station=self.station,
-            recipe=self.recipe,
-            zone=self.zone,
-            handoff=self.handoff,
-            yield_to=self.yield_to,
-            say=self.say,
-            src=src,
-        )
-
-    def replay_event(self, slot: int, alias: str, turn: int, src: str) -> dict[str, Any]:
-        """The `plan` event. Carries no `note` -- that is the point."""
-        return {
-            "ev": "plan",
-            "slot": slot,
-            "alias": alias,
-            "turn": turn,
-            "station": self.station,
-            "recipe": self.recipe,
-            "zone": self.zone,
-            "handoff": self.handoff,
-            "yield_to": self.yield_to,
-            "say": self.say,
-            "src": src,
-        }
 
 
 def extract_object(text: str) -> str:
@@ -155,7 +108,7 @@ def extract_object(text: str) -> str:
     raise PlanError("parse", "unbalanced JSON object in the reply")
 
 
-def parse_plan(text: str, legal_stations: list[str], ally_aliases: list[str]) -> ParsedPlan:
+def parse_plan(text: str, legal_stations: list[str], ally_aliases: list[str]) -> PlanControl:
     """Validate one reply against `LEGAL STATIONS` and the caps.
 
     `station` outside the legal set is the one **illegal** outcome; every other
@@ -186,10 +139,10 @@ def parse_plan(text: str, legal_stations: list[str], ally_aliases: list[str]) ->
     if yield_to not in ally_aliases:
         yield_to = "none"
 
-    return ParsedPlan(
+    return PlanControl(
         station=station,
-        recipe=recipe,
-        zone=zone,
+        recipe=cast(Literal["salad", "soup", "fries", "any"], recipe),
+        zone=cast(Literal["left", "right", "pass", "any"], zone),
         handoff=handoff,
         yield_to=yield_to,
         say=truncate_runes(raw.get("say"), SAY_RUNES),

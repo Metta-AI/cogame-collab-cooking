@@ -4,7 +4,17 @@ dist
 docs
 scripts
 tests
-tools
+tools/*
+!tools/install_native_toolchain.sh
 **/__pycache__
 *.pyc
 nim.cfg
+
+# Private source/native training evidence never enters images or public replays.
+*.evidence.partial.jsonl
+*.trajectory.jsonl
+private-training/
+*.complete.jsonl
+*.candidate.jsonl
+*.finalizer.stderr
+trajectories.jsonl

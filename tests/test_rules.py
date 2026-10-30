@@ -14,7 +14,6 @@ import pytest
 from mettagrid.simulator import Simulator
 
 from collab_cooking.game.game import (
-    CHOP_MEAT_PROGRESS,
     CHOP_VEG_PROGRESS,
     CHOPPED_MEAT,
     CHOPPED_VEG,
@@ -98,9 +97,7 @@ MOVES = {"move_north": (-1, 0), "move_south": (1, 0), "move_west": (0, -1), "mov
 def walk_to(sim: Any, slot: int, target: tuple[int, int], limit: int = 120) -> None:
     """BFS over the kitchen's open tiles until the cog is next to `target`."""
     tiles = open_tiles(LAYOUT)
-    goals = {
-        (target[0] + dr, target[1] + dc) for dr, dc in MOVES.values()
-    } & tiles
+    goals = {(target[0] + dr, target[1] + dc) for dr, dc in MOVES.values()} & tiles
     for _ in range(limit):
         here = agent_position(sim, slot)
         if here in goals:
